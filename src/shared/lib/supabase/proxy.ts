@@ -12,7 +12,18 @@ import type { Database } from "@/shared/types/database.types";
  */
 const PUBLIC_ROUTES = ["/", "/login", "/signup", "/forgot-password", "/auth", "/exercises", "/programs"];
 
+/**
+ * Prefixes that authenticate themselves and must answer rather than redirect.
+ *
+ * The MCP endpoint and its OAuth discovery documents carry a bearer token, not
+ * a session cookie. A signed-out request to them is answered with a 401 (or the
+ * public metadata), never bounced to /login -- an API client cannot follow an
+ * HTML redirect, and a login page is not a valid JSON-RPC reply.
+ */
+const SELF_AUTHENTICATED_PREFIXES = ["/api/mcp", "/.well-known/oauth-"];
+
 function isPublicRoute(pathname: string) {
+  if (SELF_AUTHENTICATED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 

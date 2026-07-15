@@ -41,6 +41,9 @@ export async function SiteHeader() {
               <ButtonLink href="/favorites" variant="ghost" className="hidden sm:inline-flex">
                 Saved
               </ButtonLink>
+              <ButtonLink href="/account/mcp" variant="ghost" className="hidden sm:inline-flex">
+                MCP
+              </ButtonLink>
               <ButtonLink href="/dashboard" variant="ghost">
                 Dashboard
               </ButtonLink>
