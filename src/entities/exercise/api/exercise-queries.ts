@@ -9,20 +9,39 @@ export type ExerciseFilters = {
   search?: string;
   muscles?: Enums<"muscle_group">[];
   equipment?: Enums<"equipment">[];
-  limit?: number;
+  page?: number;
+  perPage?: number;
+};
+
+export type ExercisePage = {
+  exercises: Exercise[];
+  total: number;
+  page: number;
+  perPage: number;
+  pageCount: number;
 };
 
 /**
- * Catalogue listing.
+ * Catalogue listing, paginated.
  *
  * No is_published filter here -- the RLS policy already hides unpublished rows
  * from non-admins, and duplicating it in the query would also hide them from
  * admins, who are supposed to see them.
  */
-export async function listExercises({ search, muscles, equipment, limit = 50 }: ExerciseFilters = {}) {
+export async function listExercises({
+  search,
+  muscles,
+  equipment,
+  page = 1,
+  perPage = 24,
+}: ExerciseFilters = {}): Promise<ExercisePage> {
   const supabase = await createClient();
 
-  let query = supabase.from("exercises").select("*").order("name").limit(limit);
+  // count: "exact" makes PostgREST return the total for the filter in the
+  // Content-Range header, which is what tells us whether a next page exists.
+  // "planned" would be cheaper but returns an estimate, and an estimate would
+  // render a Next button that leads nowhere.
+  let query = supabase.from("exercises").select("*", { count: "exact" });
 
   if (search) {
     query = query.ilike("name", `%${search}%`);
@@ -35,13 +54,25 @@ export async function listExercises({ search, muscles, equipment, limit = 50 }: 
     query = query.overlaps("equipment", equipment);
   }
 
-  const { data, error } = await query;
+  const safePage = Math.max(1, Math.floor(page));
+  const from = (safePage - 1) * perPage;
+
+  // range() is inclusive at both ends.
+  const { data, count, error } = await query.order("name").range(from, from + perPage - 1);
 
   if (error) {
     throw new Error(`Failed to list exercises: ${error.message}`);
   }
 
-  return data;
+  const total = count ?? 0;
+
+  return {
+    exercises: data,
+    total,
+    page: safePage,
+    perPage,
+    pageCount: Math.max(1, Math.ceil(total / perPage)),
+  };
 }
 
 export async function getExerciseBySlug(slug: string) {

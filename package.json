@@ -13,7 +13,8 @@
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --linked > src/shared/types/database.types.ts",
     "db:import-exercises": "node --env-file=.env.local scripts/import-exercises.mts",
-    "db:import-catalogue": "node --env-file=.env.local scripts/import-free-exercise-db.mts"
+    "db:import-catalogue": "node --env-file=.env.local scripts/import-free-exercise-db.mts",
+    "db:rehost-images": "node --env-file=.env.local scripts/upload-exercise-images.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

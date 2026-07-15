@@ -51,10 +51,11 @@ pnpm db:reset         # applies migrations + supabase/seed.sql
 ### The exercise catalogue
 
 876 exercises are already loaded, each with demonstration images, muscles, equipment, force and
-difficulty. Two importers feed the table, both idempotent — re-running updates in place:
+difficulty. Every step is idempotent — re-running updates in place:
 
 ```bash
 pnpm db:import-catalogue                     # free-exercise-db (873 exercises, the bulk)
+pnpm db:rehost-images                        # mirror images into Supabase Storage
 pnpm db:import-exercises data/exercises.csv  # a workout-cool CSV export, if you get one
 ```
 
@@ -71,9 +72,14 @@ exercise unfindable, which is worse than a failed import.
 
 The two sources dedupe against each other: both upsert on `slug`.
 
-> The image URLs point at `raw.githubusercontent.com`. Fine for development, wrong for production —
-> it hotlinks a third party with no uptime guarantee and rate limits. Rehost to Supabase Storage
-> before launch; only the `image_urls` values and one entry in `next.config.ts` change.
+**Images live in our own Storage bucket**, not hotlinked. The import lands them on
+`raw.githubusercontent.com`; `pnpm db:rehost-images` mirrors all 1,746 into the public
+`exercise-images` bucket (94 MB) and repoints `image_urls`. That run is resumable — it only touches
+rows still pointing at GitHub and rewrites each row only after its uploads land, so an interrupted
+run continues rather than corrupting.
+
+Hotlinking would have meant no uptime guarantee, GitHub's raw-content rate limits, and a catalogue
+that breaks if that repo moves.
 
 ## Architecture
 
@@ -94,6 +100,7 @@ supabase/
 └── tests/         Schema + RLS tests (pnpm test:db)
 scripts/
 ├── import-free-exercise-db.mts   JSON -> exercises (the main catalogue)
+├── upload-exercise-images.mts    mirror images into Supabase Storage
 └── import-exercises.mts          workout-cool CSV -> exercises pivot
 ```
 
@@ -195,13 +202,14 @@ JWT; everything downstream of it is real Postgres.
 | `pnpm db:reset` | Reset local DB and re-apply migrations + seed |
 | `pnpm db:types` | Regenerate DB types from the live schema |
 | `pnpm db:import-catalogue` | Import the free-exercise-db catalogue (873 exercises) |
+| `pnpm db:rehost-images` | Mirror exercise images into Supabase Storage |
 | `pnpm db:import-exercises <csv>` | Import a workout-cool exercise CSV |
 
 ## What's here, and what isn't
 
-Working: email/password signup and sign-in, session refresh, route gating, a 876-exercise public
-catalogue with images, muscle-group filters and search, exercise detail pages, dashboard with
-volume/set/session stats, and starting a workout session.
+Working: email/password signup and sign-in, session refresh, route gating, a paginated
+876-exercise public catalogue with self-hosted images, muscle-group filters and search, exercise
+detail pages, dashboard with volume/set/session stats, and starting a workout session.
 
 Not built yet: the set-logging UI (the actions in
 `src/features/workout-session/api/workout-actions.ts` exist and are RLS-tested, but no screen calls

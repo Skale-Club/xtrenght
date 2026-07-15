@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { listExercises } from "@/entities/exercise/api/exercise-queries";
 import type { Enums } from "@/shared/types/database.types";
+import { ButtonLink } from "@/shared/ui/button";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 export const metadata: Metadata = { title: "Exercises" };
@@ -35,19 +36,32 @@ function label(value: string) {
 export default async function ExercisesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ muscle?: string; q?: string }>;
+  searchParams: Promise<{ muscle?: string; q?: string; page?: string }>;
 }) {
-  const { muscle, q } = await searchParams;
+  const { muscle, q, page } = await searchParams;
 
   // Resolve the URL against the known groups rather than passing it through: an
   // unrecognised value falls back to "all" instead of reaching Postgres and
   // failing an enum cast.
   const selected = FILTER_GROUPS.find((g) => g.slug === muscle);
 
-  const exercises = await listExercises({
+  const { exercises, total, page: current, pageCount } = await listExercises({
     search: q,
     muscles: selected?.muscles,
+    // Number("abc") is NaN and Number("") is 0; both fall back to page 1.
+    page: Number(page) || 1,
   });
+
+  // Carries the active filter and search across page links, so paging does not
+  // silently reset them.
+  const pageHref = (target: number) => {
+    const params = new URLSearchParams();
+    if (muscle) params.set("muscle", muscle);
+    if (q) params.set("q", q);
+    if (target > 1) params.set("page", String(target));
+    const query = params.toString();
+    return query ? `/exercises?${query}` : "/exercises";
+  };
 
   return (
     <>
@@ -58,6 +72,10 @@ export default async function ExercisesPage({
         <p className="mt-1 text-sm text-muted">Browse the catalogue. No account needed.</p>
 
         <form className="mt-8 mb-6">
+          {/* Keeps the active filter when searching. Submitting drops ?page,
+              which is what we want -- page 4 of the old result set is
+              meaningless against a new one. */}
+          {muscle ? <input type="hidden" name="muscle" value={muscle} /> : null}
           <input
             name="q"
             defaultValue={q}
@@ -67,34 +85,54 @@ export default async function ExercisesPage({
           />
         </form>
 
-        <div className="mb-8 flex flex-wrap gap-2">
+        <div className="mb-6 flex flex-wrap gap-2">
           <Link
-            href="/exercises"
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+            href={q ? `/exercises?q=${encodeURIComponent(q)}` : "/exercises"}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
               selected ? "border-border text-muted hover:text-foreground" : "border-accent text-accent"
             }`}
           >
             All
           </Link>
-          {FILTER_GROUPS.map((group) => (
-            <Link
-              key={group.slug}
-              href={`/exercises?muscle=${group.slug}`}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                selected?.slug === group.slug
-                  ? "border-accent text-accent"
-                  : "border-border text-muted hover:text-foreground"
-              }`}
-            >
-              {group.label}
-            </Link>
-          ))}
+          {FILTER_GROUPS.map((group) => {
+            // No page param: changing the filter starts over at page 1.
+            const params = new URLSearchParams({ muscle: group.slug });
+            if (q) params.set("q", q);
+            return (
+              <Link
+                key={group.slug}
+                href={`/exercises?${params}`}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  selected?.slug === group.slug
+                    ? "border-accent text-accent"
+                    : "border-border text-muted hover:text-foreground"
+                }`}
+              >
+                {group.label}
+              </Link>
+            );
+          })}
         </div>
+
+        <p className="mb-6 text-sm text-muted">
+          <span className="numeric">{total.toLocaleString("en-US")}</span>
+          {total === 1 ? " exercise" : " exercises"}
+          {pageCount > 1 ? (
+            <>
+              {" · page "}
+              <span className="numeric">{current}</span>
+              {" of "}
+              <span className="numeric">{pageCount}</span>
+            </>
+          ) : null}
+        </p>
 
         {exercises.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-10 text-center">
             <p className="text-sm text-muted">
-              No exercises found. If the catalogue is empty, seed it first — see the README.
+              {q || selected
+                ? "No exercises match that filter."
+                : "The catalogue is empty — import it first, see the README."}
             </p>
           </div>
         ) : (
@@ -130,6 +168,32 @@ export default async function ExercisesPage({
             ))}
           </ul>
         )}
+
+        {pageCount > 1 ? (
+          <nav aria-label="Pagination" className="mt-8 flex items-center justify-between gap-4">
+            {/* Rendered as a span, not a disabled link, at the ends: a link to
+                nowhere is still focusable and still announced as a link. */}
+            {current > 1 ? (
+              <ButtonLink href={pageHref(current - 1)} variant="secondary" rel="prev">
+                ← Previous
+              </ButtonLink>
+            ) : (
+              <span aria-hidden />
+            )}
+
+            <span className="numeric text-sm text-muted">
+              {current} / {pageCount}
+            </span>
+
+            {current < pageCount ? (
+              <ButtonLink href={pageHref(current + 1)} variant="secondary" rel="next">
+                Next →
+              </ButtonLink>
+            ) : (
+              <span aria-hidden />
+            )}
+          </nav>
+        ) : null}
       </main>
     </>
   );
