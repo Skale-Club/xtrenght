@@ -1,0 +1,29 @@
+# Line endings are decided here, by the repository -- not by each machine's
+# core.autocrlf. Without this file, a clone on a PC configured differently can
+# commit CRLF and turn every later diff into noise.
+#
+# LF in the repo and in the working copy, everywhere. Node, Next.js, and
+# Postgres all read LF fine on Windows.
+* text=auto eol=lf
+
+# Windows batch files are the exception: cmd.exe needs CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary: never normalise, never diff as text. (.svg is XML, so it stays text.)
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.mp4 binary
+
+# Generated: collapse it in GitHub diffs and keep it out of language stats.
+pnpm-lock.yaml linguist-generated=true -diff
