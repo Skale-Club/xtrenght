@@ -91,6 +91,38 @@ export async function endWorkoutSession(sessionId: string): Promise<ActionResult
   return { error: null };
 }
 
+/**
+ * Rates a finished session, 1-5.
+ *
+ * The DB checks the range and rejects a comment without a rating
+ * (workout_sessions_comment_needs_rating), so this validates first and returns
+ * a readable message instead of surfacing a constraint name.
+ */
+export async function rateWorkoutSession(
+  sessionId: string,
+  rating: number,
+  comment: string,
+): Promise<ActionResult> {
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return { error: "Pick a rating between 1 and 5." };
+  }
+
+  const supabase = await createClient();
+
+  const trimmed = comment.trim();
+
+  const { error } = await supabase
+    .from("workout_sessions")
+    .update({ rating, rating_comment: trimmed || null })
+    .eq("id", sessionId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/workout/${sessionId}`);
+  revalidatePath("/dashboard");
+  return { error: null };
+}
+
 export async function addExerciseToSession(sessionId: string, exerciseId: string) {
   const supabase = await createClient();
 

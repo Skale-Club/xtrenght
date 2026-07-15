@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { getWorkoutSession } from "@/entities/workout/api/workout-queries";
 import { ExercisePicker } from "@/features/workout-session/ui/exercise-picker";
 import { FinishWorkoutButton } from "@/features/workout-session/ui/finish-workout-button";
+import { RestTimer } from "@/features/workout-session/ui/rest-timer";
 import { SessionExerciseCard } from "@/features/workout-session/ui/session-exercise-card";
+import { SessionRating } from "@/features/workout-session/ui/session-rating";
 import { ButtonLink } from "@/shared/ui/button";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
@@ -90,7 +92,21 @@ export default async function WorkoutPage({ params }: { params: Promise<{ id: st
         )}
 
         {!finished ? <ExercisePicker sessionId={session.id} /> : null}
+
+        {finished ? (
+          <div className="mt-4">
+            <SessionRating
+              sessionId={session.id}
+              initialRating={session.rating}
+              initialComment={session.rating_comment}
+            />
+          </div>
+        ) : null}
       </main>
+
+      {/* Fixed to the viewport, so it stays reachable while scrolling a long
+          session. Only while training -- it is noise on a finished one. */}
+      {!finished ? <RestTimer /> : null}
     </>
   );
 }

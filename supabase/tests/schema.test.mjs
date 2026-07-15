@@ -17,13 +17,16 @@
  * thing.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SUPABASE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const db = new PGlite();
+// pg_trgm has to be loaded into the instance before a migration can CREATE
+// EXTENSION it. Supabase ships it already available, hence the difference.
+const db = new PGlite({ extensions: { pg_trgm } });
 let failures = 0;
 
 const ok = (name) => console.log(`  PASS  ${name}`);
@@ -56,6 +59,10 @@ const asSuperuser = () => db.exec(`set role none; set request.jwt.claim.sub = ''
 // --------------------------------------------------------------- bootstrap --
 
 await db.exec(`
+  -- Supabase installs extensions into a dedicated schema, and migration 8
+  -- schema-qualifies gin_trgm_ops against it.
+  create schema extensions;
+
   create schema auth;
 
   create table auth.users (
@@ -365,10 +372,41 @@ expect(
 );
 
 await asSuperuser();
+
+// Asserts what each index is for, not how many exist. A bare count breaks the
+// moment an unrelated index is added -- which tells you nothing about whether
+// the filters are still backed.
+for (const column of ["primary_muscles", "secondary_muscles", "equipment", "exercise_types"]) {
+  const { rows } = await db.query(
+    `select indexname from pg_indexes
+     where schemaname='public' and tablename='exercises'
+       and indexdef ilike '%gin%' and indexdef ilike '%${column}%'`,
+  );
+  expect(`GIN index backs the ${column} filter`, rows.length > 0, true);
+}
+
+const { rows: trgm } = await db.query(
+  `select indexname from pg_indexes
+   where schemaname='public' and tablename='exercises' and indexdef ilike '%trgm%'`,
+);
+expect("trigram index backs the name search", trgm.length, 1);
+
+// Proves the search is *indexable*, which is the claim being made -- not that
+// the planner picks the index here. This database holds a handful of seeded
+// rows, where a seq scan genuinely is faster and choosing it is correct.
+// Disabling seqscan asks the only question that generalises: given no
+// alternative, can this query use the trigram index at all? A btree cannot
+// serve a leading-wildcard ilike, so before migration 8 this failed.
+await db.exec("set enable_seqscan = off");
+const { rows: plan } = await db.query(
+  `explain (format json) select id from public.exercises where name ilike '%bench%'`,
+);
+await db.exec("set enable_seqscan = on");
+
 expect(
-  "GIN indexes back the array filters",
-  (await db.query(`select indexname from pg_indexes where schemaname='public' and indexdef ilike '%gin%'`)).rows.length,
-  4,
+  "trigram index is usable for ilike '%term%'",
+  /trgm/i.test(JSON.stringify(plan[0]["QUERY PLAN"])),
+  true,
 );
 
 // ----------------------------------------------------------------- report --

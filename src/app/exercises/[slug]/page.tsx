@@ -3,6 +3,8 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 
 import { getExerciseBySlug, isFavorited } from "@/entities/exercise/api/exercise-queries";
+import { getExerciseHistory } from "@/entities/workout/api/workout-queries";
+import { ExerciseHistoryPanel } from "@/entities/workout/ui/exercise-history";
 import { FavoriteButton } from "@/features/favorites/ui/favorite-button";
 import { createClient } from "@/shared/lib/supabase/server";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
@@ -53,7 +55,10 @@ export default async function ExercisePage({ params }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const favorited = user ? await isFavorited(exercise.id) : false;
+  // Both are per-user and meaningless signed out, where RLS returns nothing anyway.
+  const [favorited, history] = user
+    ? await Promise.all([isFavorited(exercise.id), getExerciseHistory(exercise.id)])
+    : [false, null];
 
   return (
     <>
@@ -95,6 +100,8 @@ export default async function ExercisePage({ params }: PageProps) {
           {exercise.force ? <Tags title="Force" values={[exercise.force]} /> : null}
           {exercise.level ? <Tags title="Level" values={[exercise.level]} /> : null}
         </div>
+
+        {history ? <ExerciseHistoryPanel history={history} /> : null}
 
         {exercise.introduction ? (
           <section className="mt-10">

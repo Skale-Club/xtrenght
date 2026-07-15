@@ -211,15 +211,17 @@ The loop closes: sign up, browse 876 exercises, start a workout, add exercises f
 log sets, finish, and see the volume on your dashboard.
 
 Working: email/password auth with password reset, session refresh and route gating; a paginated
-876-exercise catalogue with self-hosted images, muscle-group filters and search; favourites; the
-workout logger (add/remove exercises, add/edit/delete sets, kg/lbs toggle, resume an unfinished
-session); and a dashboard with session/set/volume stats.
+876-exercise catalogue with self-hosted images, trigram-indexed search and muscle-group filters;
+favourites; the workout logger (add/remove exercises, add/edit/delete sets, kg/lbs toggle, rest
+timer, resume an unfinished session); per-exercise history with personal records; session ratings;
+and a dashboard with session/set/volume stats.
 
 Verified end to end against the live project, not just in tests: signing in through the browser,
 logging 82.5 kg x 8, finishing, and confirming the row in Postgres and 660 kg on the dashboard.
 
-Not built yet: training programs, exercise history and personal-record charts per exercise, rest
-timers, and session ratings (the `rating` column exists and nothing writes to it).
+Not built yet: **training programs** -- the one substantial feature left, and a milestone of its
+own rather than a gap (it needs decisions about who authors programs, whether there is an admin UI,
+and whether they are premium). Also: an admin UI for the catalogue, and social/sharing.
 
 Known limits worth naming:
 
@@ -227,8 +229,10 @@ Known limits worth naming:
   inputs mid-set -- but it means a value typed and never blurred is not saved.
 - **Duration is wall-clock.** Pausing is not modelled, so a workout you walk away from records the
   gap as training time.
-- **Exercise search is `ilike '%term%'`,** which cannot use an index. Fine at 876 rows; it wants
-  `pg_trgm` or full-text search before the catalogue grows much.
+- **Personal records are per exercise, by top weight.** Estimated 1RM, rep PRs and volume PRs are
+  not computed, and a PR at 5 reps outranks the same weight at 8 -- which is wrong, but wrong in a
+  way nobody has asked to fix yet.
+- **The rest timer does not survive a reload.** It is a live prompt, not a record.
 
 > Note: `src/app/exercises/[slug]/page.tsx` renders the dataset's HTML with
 > `dangerouslySetInnerHTML`. Fine for admin-curated content; if user-submitted exercises are ever
