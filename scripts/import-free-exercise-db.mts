@@ -117,7 +117,7 @@ function slugify(name: string) {
   return name
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // strip combining accents
+    .replace(/[\u0300-\u036f]/g, "") // strip combining accents
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 }

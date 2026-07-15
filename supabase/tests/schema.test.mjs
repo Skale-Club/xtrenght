@@ -51,6 +51,9 @@ async function expectError(name, fn, fragment) {
   }
 }
 
+/** Rows-only query helper; most assertions here only care about the rows. */
+const q = async (sql) => (await db.query(sql)).rows;
+
 const asUser = (userId) =>
   db.exec(`set role none; set request.jwt.claim.sub = '${userId}'; set role authenticated;`);
 const asAnon = () => db.exec(`set role none; set request.jwt.claim.sub = ''; set role anon;`);
@@ -138,6 +141,13 @@ for (const table of [
   "workout_sessions",
   "workout_session_exercises",
   "workout_sets",
+  "programs",
+  "program_weeks",
+  "program_sessions",
+  "program_session_exercises",
+  "program_suggested_sets",
+  "user_program_enrollments",
+  "user_session_progress",
 ]) {
   const row = classes.find((r) => r.relname === table);
   if (!row) fail(`${table} exists`, "missing");
@@ -346,6 +356,206 @@ ok("can write to the catalogue");
 expect(
   "still cannot see another user's workouts",
   (await db.query(`select id from public.workout_sessions`)).rows.length,
+  0,
+);
+
+// ------------------------------------------------------------- programs --
+
+console.log("\nprograms -- template visibility:");
+await asSuperuser();
+
+const insertedPrograms = await q(`
+  insert into public.programs (slug, title, level, visibility) values
+    ('starting-strength', 'Starting Strength', 'BEGINNER', 'PUBLISHED'),
+    ('secret-program', 'Secret Program', 'EXPERT', 'DRAFT')
+  returning id, slug
+`);
+const published = insertedPrograms.find((p) => p.slug === "starting-strength");
+const draft = insertedPrograms.find((p) => p.slug === "secret-program");
+
+const weekId = (
+  await q(
+    `insert into public.program_weeks (program_id, week_number, title)
+     values ('${published.id}', 1, 'Week 1') returning id`,
+  )
+)[0].id;
+
+const draftWeekId = (
+  await q(
+    `insert into public.program_weeks (program_id, week_number, title)
+     values ('${draft.id}', 1, 'Hidden week') returning id`,
+  )
+)[0].id;
+
+const progSessionId = (
+  await q(
+    `insert into public.program_sessions (week_id, session_number, slug, title)
+     values ('${weekId}', 1, 'day-1', 'Day 1') returning id`,
+  )
+)[0].id;
+
+const progExerciseId = (
+  await q(
+    `insert into public.program_session_exercises (program_session_id, exercise_id, order_index, instructions)
+     values ('${progSessionId}', '${lungeId}', 0, 'Warm up first.') returning id`,
+  )
+)[0].id;
+
+await q(
+  `insert into public.program_suggested_sets (program_session_exercise_id, set_index, types, reps, weight, weight_unit)
+   values ('${progExerciseId}', 0, '{WEIGHT,REPS}', 8, 60, 'kg')`,
+);
+
+// A visitor must see the published tree and none of the draft.
+await asAnon();
+expect("signed-out visitor sees the published program", (await q(`select id from public.programs`)).length, 1);
+expect(
+  "signed-out visitor cannot see the draft program",
+  (await q(`select id from public.programs where slug = 'secret-program'`)).length,
+  0,
+);
+expect(
+  "visibility is inherited by weeks",
+  (await q(`select id from public.program_weeks`)).length,
+  1,
+);
+expect(
+  "a draft's week is hidden even when addressed directly",
+  (await q(`select id from public.program_weeks where id = '${draftWeekId}'`)).length,
+  0,
+);
+expect("visibility is inherited by sessions", (await q(`select id from public.program_sessions`)).length, 1);
+expect(
+  "visibility is inherited by suggested sets",
+  (await q(`select id from public.program_suggested_sets`)).length,
+  1,
+);
+await expectError(
+  "a visitor cannot author a program",
+  () => db.query(`insert into public.programs (slug, title, level) values ('hack', 'Hack', 'EXPERT')`),
+  "row-level security",
+);
+
+console.log("\nprograms -- enrollment:");
+await asUser(alice);
+
+const enrollmentId = (
+  await q(
+    `insert into public.user_program_enrollments (user_id, program_id)
+     values ('${alice}', '${published.id}') returning id`,
+  )
+)[0].id;
+ok("owner can enroll in a published program");
+
+await expectError(
+  "nobody can enroll in a draft program",
+  () =>
+    db.query(
+      `insert into public.user_program_enrollments (user_id, program_id)
+       values ('${alice}', '${draft.id}')`,
+    ),
+  "row-level security",
+);
+
+await expectError(
+  "a user cannot enroll somebody else",
+  () =>
+    db.query(
+      `insert into public.user_program_enrollments (user_id, program_id)
+       values ('${bob}', '${published.id}')`,
+    ),
+  "row-level security",
+);
+
+await asSuperuser();
+expect(
+  "the trigger counts the participant",
+  (await q(`select participant_count from public.programs where id = '${published.id}'`))[0].participant_count,
+  1,
+);
+
+// Starting a program session links it to a real workout, at start.
+await asUser(alice);
+const progWorkout = (
+  await q(`insert into public.workout_sessions (user_id) values ('${alice}') returning id`)
+)[0].id;
+
+await q(
+  `insert into public.user_session_progress (enrollment_id, program_session_id, workout_session_id)
+   values ('${enrollmentId}', '${progSessionId}', '${progWorkout}')`,
+);
+ok("owner links a program session to their workout");
+
+expect(
+  "the session counts as done only once its workout ends",
+  (
+    await q(`
+      select count(*)::int as n
+      from public.user_session_progress p
+      join public.workout_sessions s on s.id = p.workout_session_id
+      where p.enrollment_id = '${enrollmentId}' and s.ended_at is not null
+    `)
+  )[0].n,
+  0,
+);
+
+await q(`update public.workout_sessions set ended_at = now() where id = '${progWorkout}'`);
+expect(
+  "finishing the workout completes the program session, with no second write",
+  (
+    await q(`
+      select count(*)::int as n
+      from public.user_session_progress p
+      join public.workout_sessions s on s.id = p.workout_session_id
+      where p.enrollment_id = '${enrollmentId}' and s.ended_at is not null
+    `)
+  )[0].n,
+  1,
+);
+
+console.log("\nprograms -- another user is locked out:");
+await asUser(bob);
+expect("cannot see the enrollment", (await q(`select id from public.user_program_enrollments`)).length, 0);
+expect("cannot see the session progress", (await q(`select id from public.user_session_progress`)).length, 0);
+
+const bobEnrollment = (
+  await q(
+    `insert into public.user_program_enrollments (user_id, program_id)
+     values ('${bob}', '${published.id}') returning id`,
+  )
+)[0].id;
+
+// Bob owns an enrollment, but not Alice's workout.
+await expectError(
+  "cannot attach another user's workout to their own progress",
+  () =>
+    db.query(
+      `insert into public.user_session_progress (enrollment_id, program_session_id, workout_session_id)
+       values ('${bobEnrollment}', '${progSessionId}', '${progWorkout}')`,
+    ),
+  "row-level security",
+);
+
+await q(`delete from public.user_program_enrollments where id = '${bobEnrollment}'`);
+
+await asSuperuser();
+expect(
+  "the trigger decrements on unenroll",
+  (await q(`select participant_count from public.programs where id = '${published.id}'`))[0].participant_count,
+  1,
+);
+
+console.log("\nprograms -- admin:");
+await asSuperuser();
+await db.query(`update public.profiles set role = 'admin' where id = '${bob}'`);
+await asUser(bob);
+expect("admin sees draft programs", (await q(`select id from public.programs`)).length, 2);
+expect("admin sees a draft's weeks", (await q(`select id from public.program_weeks`)).length, 2);
+await db.query(`insert into public.programs (slug, title, level) values ('admin-made', 'Admin Made', 'EXPERT')`);
+ok("admin can author a program");
+expect(
+  "admin still cannot see another user's enrollment",
+  (await q(`select id from public.user_program_enrollments`)).length,
   0,
 );
 

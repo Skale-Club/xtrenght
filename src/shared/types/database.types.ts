@@ -265,6 +265,288 @@ export type Database = {
           },
         ];
       };
+      programs: {
+        Row: {
+          id: string;
+          slug: string;
+          title: string;
+          description: string | null;
+          category: string | null;
+          image_url: string | null;
+          level: Enums<"program_level">;
+          equipment: Enums<"equipment">[];
+          session_duration_min: number | null;
+          visibility: Enums<"program_visibility">;
+          participant_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          slug: string;
+          title: string;
+          description?: string | null;
+          category?: string | null;
+          image_url?: string | null;
+          level?: Enums<"program_level">;
+          equipment?: Enums<"equipment">[];
+          session_duration_min?: number | null;
+          visibility?: Enums<"program_visibility">;
+          participant_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          slug?: string;
+          title?: string;
+          description?: string | null;
+          category?: string | null;
+          image_url?: string | null;
+          level?: Enums<"program_level">;
+          equipment?: Enums<"equipment">[];
+          session_duration_min?: number | null;
+          visibility?: Enums<"program_visibility">;
+          participant_count?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      program_weeks: {
+        Row: {
+          id: string;
+          program_id: string;
+          week_number: number;
+          title: string | null;
+          description: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          program_id: string;
+          week_number: number;
+          title?: string | null;
+          description?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          program_id?: string;
+          week_number?: number;
+          title?: string | null;
+          description?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "program_weeks_program_id_fkey";
+            columns: ["program_id"];
+            isOneToOne: false;
+            referencedRelation: "programs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      program_sessions: {
+        Row: {
+          id: string;
+          week_id: string;
+          session_number: number;
+          slug: string;
+          title: string;
+          description: string | null;
+          estimated_minutes: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          week_id: string;
+          session_number: number;
+          slug: string;
+          title: string;
+          description?: string | null;
+          estimated_minutes?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          week_id?: string;
+          session_number?: number;
+          slug?: string;
+          title?: string;
+          description?: string | null;
+          estimated_minutes?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "program_sessions_week_id_fkey";
+            columns: ["week_id"];
+            isOneToOne: false;
+            referencedRelation: "program_weeks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      program_session_exercises: {
+        Row: {
+          id: string;
+          program_session_id: string;
+          exercise_id: string;
+          order_index: number;
+          instructions: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          program_session_id: string;
+          exercise_id: string;
+          order_index: number;
+          instructions?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          program_session_id?: string;
+          exercise_id?: string;
+          order_index?: number;
+          instructions?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "program_session_exercises_program_session_id_fkey";
+            columns: ["program_session_id"];
+            isOneToOne: false;
+            referencedRelation: "program_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "program_session_exercises_exercise_id_fkey";
+            columns: ["exercise_id"];
+            isOneToOne: false;
+            referencedRelation: "exercises";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      program_suggested_sets: {
+        Row: {
+          id: string;
+          program_session_exercise_id: string;
+          set_index: number;
+          types: Enums<"workout_set_type">[];
+          reps: number | null;
+          weight: number | null;
+          weight_unit: Enums<"weight_unit"> | null;
+          duration_seconds: number | null;
+        };
+        Insert: {
+          id?: string;
+          program_session_exercise_id: string;
+          set_index: number;
+          types?: Enums<"workout_set_type">[];
+          reps?: number | null;
+          weight?: number | null;
+          weight_unit?: Enums<"weight_unit"> | null;
+          duration_seconds?: number | null;
+        };
+        Update: {
+          id?: string;
+          program_session_exercise_id?: string;
+          set_index?: number;
+          types?: Enums<"workout_set_type">[];
+          reps?: number | null;
+          weight?: number | null;
+          weight_unit?: Enums<"weight_unit"> | null;
+          duration_seconds?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "program_suggested_sets_program_session_exercise_id_fkey";
+            columns: ["program_session_exercise_id"];
+            isOneToOne: false;
+            referencedRelation: "program_session_exercises";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_program_enrollments: {
+        Row: {
+          id: string;
+          user_id: string;
+          program_id: string;
+          enrolled_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          program_id: string;
+          enrolled_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          program_id?: string;
+          enrolled_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_program_enrollments_program_id_fkey";
+            columns: ["program_id"];
+            isOneToOne: false;
+            referencedRelation: "programs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_session_progress: {
+        Row: {
+          id: string;
+          enrollment_id: string;
+          program_session_id: string;
+          workout_session_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          enrollment_id: string;
+          program_session_id: string;
+          workout_session_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          enrollment_id?: string;
+          program_session_id?: string;
+          workout_session_id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_session_progress_enrollment_id_fkey";
+            columns: ["enrollment_id"];
+            isOneToOne: false;
+            referencedRelation: "user_program_enrollments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_session_progress_program_session_id_fkey";
+            columns: ["program_session_id"];
+            isOneToOne: false;
+            referencedRelation: "program_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_session_progress_workout_session_id_fkey";
+            columns: ["workout_session_id"];
+            isOneToOne: true;
+            referencedRelation: "workout_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -278,6 +560,22 @@ export type Database = {
       };
       owns_workout_session_exercise: {
         Args: { session_exercise_id: string };
+        Returns: boolean;
+      };
+      owns_enrollment: {
+        Args: { enrollment_id: string };
+        Returns: boolean;
+      };
+      program_is_readable: {
+        Args: { program_id: string };
+        Returns: boolean;
+      };
+      week_is_readable: {
+        Args: { week_id: string };
+        Returns: boolean;
+      };
+      program_session_is_readable: {
+        Args: { session_id: string };
         Returns: boolean;
       };
     };
@@ -336,6 +634,8 @@ export type Database = {
         | "CROSSFIT"
         | "WEIGHTLIFTING";
       mechanics_type: "ISOLATION" | "COMPOUND";
+      program_level: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | "EXPERT";
+      program_visibility: "DRAFT" | "PUBLISHED" | "ARCHIVED";
       muscle_group:
         | "BICEPS"
         | "SHOULDERS"

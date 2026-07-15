@@ -98,6 +98,7 @@ supabase/
 ├── migrations/    The schema. Source of truth.
 ├── seed.sql       Three sample exercises for local dev
 └── tests/         Schema + RLS tests (pnpm test:db)
+src/app/admin/     Program authoring (RLS is the boundary; the layout is convenience)
 scripts/
 ├── import-free-exercise-db.mts   JSON -> exercises (the main catalogue)
 ├── upload-exercise-images.mts    mirror images into Supabase Storage
@@ -161,6 +162,44 @@ distinguishes them and collapsing both into `BACK` would flatten 229 exercises; 
 six-language translation columns (`titleEn`, `titleEs`, `titlePt`…). The app is English-only, so
 each field is one column. All of it can come back as new migrations when there's a reason.
 
+## Programs
+
+Adapted from workout-cool's model, which gets the central idea right: a program is a **template**
+(`programs -> program_weeks -> program_sessions -> program_session_exercises ->
+program_suggested_sets`) and a workout is a **log**. They meet at exactly one row,
+`user_session_progress`, and neither overwrites the other. Editing a program never rewrites what
+someone already lifted.
+
+Programs are admin-authored: `/admin/programs` creates them, builds the week/session/exercise tree,
+and flips DRAFT -> PUBLISHED. Visibility is inherited down the tree by RLS, so a draft's weeks and
+sessions are invisible even when addressed directly by id.
+
+Four deliberate departures from their implementation:
+
+**There is no "complete session" step.** `user_session_progress.workout_session_id` is written when
+the session *starts*, not when it finishes, so a program session is done exactly when its workout
+has `ended_at`. workout-cool instead POSTs to a completion route that does `update` -> `count` ->
+`update` in three non-transactional statements: two concurrent completions read the same count, and
+a crash between them leaves the enrollment describing work that did not happen. Here there is no
+second write to race.
+
+**The cursor is derived, not stored.** They keep `currentWeek`, `currentSession`,
+`completedSessions` and `completedAt` on the enrollment and recompute them in application code.
+All four follow from the progress rows, and theirs drift: *starting* a session advances their
+cursor, so abandoning one leaves the pointer wrong. Ours is "the first session with no finished
+workout", computed on read. `user_program_enrollments` has four columns: id, user_id, program_id,
+enrolled_at.
+
+**Linking at start, not completion.** Theirs means a workout in progress does not know which program
+it belongs to -- close the app mid-session and the connection is gone.
+
+**`participant_count` is a trigger, not a counter.** It cannot be derived at read time (enrollments
+are RLS-scoped, so a public page would count only its own viewer), so it stays denormalised -- but
+the database maintains it atomically, and it decrements. Theirs increments from the enroll route and
+has no path that puts it back.
+
+Suggested sets use explicit `reps`/`weight` columns, for the same reason logged sets do.
+
 ## Testing the schema
 
 ```bash
@@ -219,9 +258,8 @@ and a dashboard with session/set/volume stats.
 Verified end to end against the live project, not just in tests: signing in through the browser,
 logging 82.5 kg x 8, finishing, and confirming the row in Postgres and 660 kg on the dashboard.
 
-Not built yet: **training programs** -- the one substantial feature left, and a milestone of its
-own rather than a gap (it needs decisions about who authors programs, whether there is an admin UI,
-and whether they are premium). Also: an admin UI for the catalogue, and social/sharing.
+Not built yet: an admin UI for the exercise catalogue, social/sharing, and premium/billing --
+`is_premium` flags were deliberately left out until there is something to charge for.
 
 Known limits worth naming:
 

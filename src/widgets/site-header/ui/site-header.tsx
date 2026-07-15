@@ -10,6 +10,12 @@ export async function SiteHeader() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Drives the Admin link only. The admin pages do not trust this -- RLS is
+  // what actually stops a non-admin writing, whatever the nav renders.
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+    : { data: null };
+
   return (
     <header className="border-b border-border">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
@@ -18,12 +24,20 @@ export async function SiteHeader() {
         </Link>
 
         <nav className="flex items-center gap-2">
+          <ButtonLink href="/programs" variant="ghost" className="hidden sm:inline-flex">
+            Programs
+          </ButtonLink>
           <ButtonLink href="/exercises" variant="ghost">
             Exercises
           </ButtonLink>
 
           {user ? (
             <>
+              {profile?.role === "admin" ? (
+                <ButtonLink href="/admin/programs" variant="ghost" className="hidden sm:inline-flex">
+                  Admin
+                </ButtonLink>
+              ) : null}
               <ButtonLink href="/favorites" variant="ghost" className="hidden sm:inline-flex">
                 Saved
               </ButtonLink>
