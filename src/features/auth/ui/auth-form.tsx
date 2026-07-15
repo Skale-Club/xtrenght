@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 
@@ -102,6 +103,15 @@ export function AuthForm({ redirectTo }: { redirectTo?: string }) {
 
         <SubmitButton label={mode === "signin" ? "Sign in" : "Create account"} />
       </form>
+
+      {mode === "signin" ? (
+        <Link
+          href="/forgot-password"
+          className="mt-4 block text-center text-sm text-muted hover:text-foreground"
+        >
+          Forgot your password?
+        </Link>
+      ) : null}
     </div>
   );
 }

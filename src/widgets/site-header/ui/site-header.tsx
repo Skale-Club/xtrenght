@@ -24,6 +24,9 @@ export async function SiteHeader() {
 
           {user ? (
             <>
+              <ButtonLink href="/favorites" variant="ghost" className="hidden sm:inline-flex">
+                Saved
+              </ButtonLink>
               <ButtonLink href="/dashboard" variant="ghost">
                 Dashboard
               </ButtonLink>

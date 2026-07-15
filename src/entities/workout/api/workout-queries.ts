@@ -42,6 +42,74 @@ export async function listRecentSessions(limit = 10) {
   return data;
 }
 
+/**
+ * One session with everything needed to render the logging screen.
+ *
+ * No user_id filter, same as above: the RLS policy scopes it. A session
+ * belonging to someone else simply comes back null, which the page renders as
+ * a 404 -- indistinguishable from a session that never existed, which is the
+ * right thing to leak (nothing).
+ */
+export async function getWorkoutSession(id: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select(
+      `
+      id,
+      started_at,
+      ended_at,
+      duration_seconds,
+      workout_session_exercises (
+        id,
+        order_index,
+        exercises ( id, name, slug, image_urls ),
+        workout_sets ( id, set_index, types, reps, weight, weight_unit, duration_seconds, completed )
+      )
+    `,
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load workout session: ${error.message}`);
+  }
+
+  if (!data) return null;
+
+  // PostgREST cannot order nested rows, so the shape arrives unsorted.
+  const exercises = [...data.workout_session_exercises]
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((exercise) => ({
+      ...exercise,
+      workout_sets: [...exercise.workout_sets].sort((a, b) => a.set_index - b.set_index),
+    }));
+
+  return { ...data, workout_session_exercises: exercises };
+}
+
+export type WorkoutSessionDetail = NonNullable<Awaited<ReturnType<typeof getWorkoutSession>>>;
+
+/** The session the user is mid-way through, if any. At most one is open. */
+export async function getActiveSession() {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select("id, started_at")
+    .is("ended_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load the active session: ${error.message}`);
+  }
+
+  return data;
+}
+
 export type SessionSummary = {
   totalSessions: number;
   completedSets: number;

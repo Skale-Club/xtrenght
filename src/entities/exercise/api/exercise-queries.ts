@@ -86,3 +86,41 @@ export async function getExerciseBySlug(slug: string) {
 
   return data;
 }
+
+/**
+ * Whether the signed-in user has favourited this exercise.
+ *
+ * Returns false when signed out rather than throwing: the catalogue is public,
+ * and RLS returns no rows for anon anyway.
+ */
+export async function isFavorited(exerciseId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("user_favorite_exercises")
+    .select("exercise_id")
+    .eq("exercise_id", exerciseId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to check favourite: ${error.message}`);
+  }
+
+  return data !== null;
+}
+
+/** The signed-in user's saved exercises. RLS scopes this to them. */
+export async function listFavoriteExercises() {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("user_favorite_exercises")
+    .select("created_at, exercises (id, name, slug, primary_muscles, image_urls)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to list favourites: ${error.message}`);
+  }
+
+  return data.flatMap((row) => (row.exercises ? [row.exercises] : []));
+}

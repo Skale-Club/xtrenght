@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { getSessionSummary, listRecentSessions } from "@/entities/workout/api/workout-queries";
+import Link from "next/link";
+
+import {
+  getActiveSession,
+  getSessionSummary,
+  listRecentSessions,
+} from "@/entities/workout/api/workout-queries";
 import { createClient } from "@/shared/lib/supabase/server";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 import { StartWorkoutButton } from "@/features/workout-session/ui/start-workout-button";
@@ -36,7 +42,11 @@ export default async function DashboardPage() {
     redirect("/login?redirectTo=/dashboard");
   }
 
-  const [summary, sessions] = await Promise.all([getSessionSummary(), listRecentSessions()]);
+  const [summary, sessions, active] = await Promise.all([
+    getSessionSummary(),
+    listRecentSessions(),
+    getActiveSession(),
+  ]);
 
   return (
     <>
@@ -48,7 +58,7 @@ export default async function DashboardPage() {
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="mt-1 text-sm text-muted">{user.email}</p>
           </div>
-          <StartWorkoutButton />
+          <StartWorkoutButton resumeId={active?.id} />
         </div>
 
         <div className="mb-12 grid gap-4 sm:grid-cols-3">
@@ -66,23 +76,25 @@ export default async function DashboardPage() {
         ) : (
           <ul className="flex flex-col gap-3">
             {sessions.map((session) => (
-              <li
-                key={session.id}
-                className="flex items-center justify-between rounded-xl border border-border bg-surface px-5 py-4"
-              >
-                <div>
-                  <p className="font-medium">{formatDate(session.started_at)}</p>
-                  <p className="mt-0.5 text-sm text-muted">
-                    {session.workout_session_exercises.length} exercise
-                    {session.workout_session_exercises.length === 1 ? "" : "s"}
-                    {session.ended_at ? "" : " · in progress"}
-                  </p>
-                </div>
-                {session.duration_seconds ? (
-                  <span className="numeric text-sm text-muted">
-                    {Math.round(session.duration_seconds / 60)} min
-                  </span>
-                ) : null}
+              <li key={session.id}>
+                <Link
+                  href={`/workout/${session.id}`}
+                  className="flex items-center justify-between rounded-xl border border-border bg-surface px-5 py-4 transition-colors hover:border-muted"
+                >
+                  <div>
+                    <p className="font-medium">{formatDate(session.started_at)}</p>
+                    <p className="mt-0.5 text-sm text-muted">
+                      {session.workout_session_exercises.length} exercise
+                      {session.workout_session_exercises.length === 1 ? "" : "s"}
+                      {session.ended_at ? "" : " · in progress"}
+                    </p>
+                  </div>
+                  {session.duration_seconds ? (
+                    <span className="numeric text-sm text-muted">
+                      {Math.round(session.duration_seconds / 60)} min
+                    </span>
+                  ) : null}
+                </Link>
               </li>
             ))}
           </ul>

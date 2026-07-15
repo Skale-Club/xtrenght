@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 
-import { getExerciseBySlug } from "@/entities/exercise/api/exercise-queries";
+import { getExerciseBySlug, isFavorited } from "@/entities/exercise/api/exercise-queries";
+import { FavoriteButton } from "@/features/favorites/ui/favorite-button";
+import { createClient } from "@/shared/lib/supabase/server";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 type PageProps = { params: Promise<{ slug: string }> };
@@ -46,12 +48,27 @@ export default async function ExercisePage({ params }: PageProps) {
     notFound();
   }
 
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const favorited = user ? await isFavorited(exercise.id) : false;
+
   return (
     <>
       <SiteHeader />
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
-        <h1 className="text-3xl font-bold tracking-tight">{exercise.name}</h1>
+        <div className="flex items-start justify-between gap-4">
+          <h1 className="text-3xl font-bold tracking-tight">{exercise.name}</h1>
+          <FavoriteButton
+            exerciseId={exercise.id}
+            slug={exercise.slug}
+            initialFavorited={favorited}
+            signedIn={user !== null}
+          />
+        </div>
 
         {exercise.image_urls.length > 0 ? (
           <div className="mt-8 grid gap-3 sm:grid-cols-2">

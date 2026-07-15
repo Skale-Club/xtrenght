@@ -3,8 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import type { Database } from "@/shared/types/database.types";
 
-/** Prefixes reachable while signed out. Everything else demands a session. */
-const PUBLIC_ROUTES = ["/", "/login", "/signup", "/auth", "/exercises"];
+/**
+ * Prefixes reachable while signed out. Everything else demands a session.
+ *
+ * /reset-password is deliberately absent: the recovery link goes to /auth/confirm,
+ * which exchanges the token for a session before redirecting there. Landing on it
+ * without one means the link was never followed, and /login is the right answer.
+ */
+const PUBLIC_ROUTES = ["/", "/login", "/signup", "/forgot-password", "/auth", "/exercises"];
 
 function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));

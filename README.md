@@ -207,13 +207,28 @@ JWT; everything downstream of it is real Postgres.
 
 ## What's here, and what isn't
 
-Working: email/password signup and sign-in, session refresh, route gating, a paginated
-876-exercise public catalogue with self-hosted images, muscle-group filters and search, exercise
-detail pages, dashboard with volume/set/session stats, and starting a workout session.
+The loop closes: sign up, browse 876 exercises, start a workout, add exercises from a typeahead,
+log sets, finish, and see the volume on your dashboard.
 
-Not built yet: the set-logging UI (the actions in
-`src/features/workout-session/api/workout-actions.ts` exist and are RLS-tested, but no screen calls
-`addExerciseToSession` yet), favourites, and password reset.
+Working: email/password auth with password reset, session refresh and route gating; a paginated
+876-exercise catalogue with self-hosted images, muscle-group filters and search; favourites; the
+workout logger (add/remove exercises, add/edit/delete sets, kg/lbs toggle, resume an unfinished
+session); and a dashboard with session/set/volume stats.
+
+Verified end to end against the live project, not just in tests: signing in through the browser,
+logging 82.5 kg x 8, finishing, and confirming the row in Postgres and 660 kg on the dashboard.
+
+Not built yet: training programs, exercise history and personal-record charts per exercise, rest
+timers, and session ratings (the `rating` column exists and nothing writes to it).
+
+Known limits worth naming:
+
+- **Sets save on blur, not per keystroke.** Deliberate -- a round trip per character would lag the
+  inputs mid-set -- but it means a value typed and never blurred is not saved.
+- **Duration is wall-clock.** Pausing is not modelled, so a workout you walk away from records the
+  gap as training time.
+- **Exercise search is `ilike '%term%'`,** which cannot use an index. Fine at 876 rows; it wants
+  `pg_trgm` or full-text search before the catalogue grows much.
 
 > Note: `src/app/exercises/[slug]/page.tsx` renders the dataset's HTML with
 > `dangerouslySetInnerHTML`. Fine for admin-curated content; if user-submitted exercises are ever
