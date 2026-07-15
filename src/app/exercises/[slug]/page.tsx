@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 
 import { getExerciseBySlug } from "@/entities/exercise/api/exercise-queries";
@@ -52,11 +53,30 @@ export default async function ExercisePage({ params }: PageProps) {
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
         <h1 className="text-3xl font-bold tracking-tight">{exercise.name}</h1>
 
+        {exercise.image_urls.length > 0 ? (
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            {/* The source ships start and end positions, in order. */}
+            {exercise.image_urls.map((url, index) => (
+              <Image
+                key={url}
+                src={url}
+                alt={`${exercise.name}, position ${index + 1} of ${exercise.image_urls.length}`}
+                width={640}
+                height={480}
+                priority={index === 0}
+                className="w-full rounded-xl border border-border object-cover"
+              />
+            ))}
+          </div>
+        ) : null}
+
         <div className="mt-8 grid gap-6 sm:grid-cols-2">
           <Tags title="Primary muscles" values={exercise.primary_muscles} />
           <Tags title="Secondary muscles" values={exercise.secondary_muscles} />
           <Tags title="Equipment" values={exercise.equipment} />
           <Tags title="Type" values={exercise.exercise_types} />
+          {exercise.force ? <Tags title="Force" values={[exercise.force]} /> : null}
+          {exercise.level ? <Tags title="Level" values={[exercise.level]} /> : null}
         </div>
 
         {exercise.introduction ? (

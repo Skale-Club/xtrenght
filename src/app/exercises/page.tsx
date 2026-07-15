@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 
 import { listExercises } from "@/entities/exercise/api/exercise-queries";
@@ -7,16 +8,24 @@ import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 export const metadata: Metadata = { title: "Exercises" };
 
-const FILTER_MUSCLES: Enums<"muscle_group">[] = [
-  "CHEST",
-  "BACK",
-  "SHOULDERS",
-  "BICEPS",
-  "TRICEPS",
-  "QUADRICEPS",
-  "HAMSTRINGS",
-  "GLUTES",
-  "ABDOMINALS",
+/**
+ * Filter chips are muscle *groups*, not single enum values.
+ *
+ * People shop for "back exercises"; the anatomy underneath is lats, traps, and
+ * the lower and middle back. Mapping a chip to one enum value made the back
+ * chip return nothing at all, because the catalogue never tags anything with a
+ * bare BACK -- it is always specific.
+ */
+const FILTER_GROUPS: { slug: string; label: string; muscles: Enums<"muscle_group">[] }[] = [
+  { slug: "chest", label: "Chest", muscles: ["CHEST"] },
+  // BACK stays in the list for rows imported from the workout-cool CSV, which
+  // does use the generic value.
+  { slug: "back", label: "Back", muscles: ["LATS", "MIDDLE_BACK", "LOWER_BACK", "TRAPS", "BACK"] },
+  { slug: "shoulders", label: "Shoulders", muscles: ["SHOULDERS"] },
+  { slug: "arms", label: "Arms", muscles: ["BICEPS", "TRICEPS", "FOREARMS"] },
+  { slug: "legs", label: "Legs", muscles: ["QUADRICEPS", "HAMSTRINGS", "CALVES"] },
+  { slug: "glutes", label: "Glutes", muscles: ["GLUTES"] },
+  { slug: "core", label: "Core", muscles: ["ABDOMINALS", "OBLIQUES"] },
 ];
 
 function label(value: string) {
@@ -30,13 +39,14 @@ export default async function ExercisesPage({
 }) {
   const { muscle, q } = await searchParams;
 
-  // Validate against the enum before it reaches Postgres: an unknown value
-  // would fail the cast, and this keeps the URL from deciding what is a muscle.
-  const selected = FILTER_MUSCLES.find((m) => m === muscle);
+  // Resolve the URL against the known groups rather than passing it through: an
+  // unrecognised value falls back to "all" instead of reaching Postgres and
+  // failing an enum cast.
+  const selected = FILTER_GROUPS.find((g) => g.slug === muscle);
 
   const exercises = await listExercises({
     search: q,
-    muscles: selected ? [selected] : undefined,
+    muscles: selected?.muscles,
   });
 
   return (
@@ -66,15 +76,17 @@ export default async function ExercisesPage({
           >
             All
           </Link>
-          {FILTER_MUSCLES.map((m) => (
+          {FILTER_GROUPS.map((group) => (
             <Link
-              key={m}
-              href={`/exercises?muscle=${m}`}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
-                selected === m ? "border-accent text-accent" : "border-border text-muted hover:text-foreground"
+              key={group.slug}
+              href={`/exercises?muscle=${group.slug}`}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                selected?.slug === group.slug
+                  ? "border-accent text-accent"
+                  : "border-border text-muted hover:text-foreground"
               }`}
             >
-              {label(m)}
+              {group.label}
             </Link>
           ))}
         </div>
@@ -91,12 +103,28 @@ export default async function ExercisesPage({
               <li key={exercise.id}>
                 <Link
                   href={`/exercises/${exercise.slug}`}
-                  className="block rounded-xl border border-border bg-surface p-5 transition-colors hover:border-muted"
+                  className="flex gap-4 overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-muted"
                 >
-                  <p className="font-semibold">{exercise.name}</p>
-                  <p className="mt-1.5 text-xs capitalize text-muted">
-                    {exercise.primary_muscles.map(label).join(", ") || "—"}
-                  </p>
+                  {exercise.image_urls[0] ? (
+                    <Image
+                      src={exercise.image_urls[0]}
+                      alt=""
+                      width={96}
+                      height={96}
+                      // Decorative: the exercise name next to it already names
+                      // the link, so alt text would just be read twice.
+                      aria-hidden
+                      className="h-24 w-24 shrink-0 object-cover"
+                    />
+                  ) : (
+                    <div className="h-24 w-24 shrink-0 bg-surface-raised" aria-hidden />
+                  )}
+                  <div className="min-w-0 self-center py-4 pr-4">
+                    <p className="truncate font-semibold">{exercise.name}</p>
+                    <p className="mt-1.5 text-xs capitalize text-muted">
+                      {exercise.primary_muscles.map(label).join(", ") || "—"}
+                    </p>
+                  </div>
                 </Link>
               </li>
             ))}

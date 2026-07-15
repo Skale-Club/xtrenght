@@ -48,18 +48,32 @@ supabase start        # prints the local URL and keys for .env.local
 pnpm db:reset         # applies migrations + supabase/seed.sql
 ```
 
-### Fill the exercise catalogue
+### The exercise catalogue
 
-`supabase/seed.sql` has already inserted three exercises so the UI has something to render. For a
-real catalogue you need a CSV in workout-cool's export format:
+876 exercises are already loaded, each with demonstration images, muscles, equipment, force and
+difficulty. Two importers feed the table, both idempotent — re-running updates in place:
 
 ```bash
-pnpm db:import-exercises data/exercises.csv
+pnpm db:import-catalogue                     # free-exercise-db (873 exercises, the bulk)
+pnpm db:import-exercises data/exercises.csv  # a workout-cool CSV export, if you get one
 ```
 
-**The full workout-cool exercise database is not public.** Their repo ships only
-`data/sample-exercises.csv` with 3 exercises — the large catalogue on workout.cool is not in the
-repository. Sourcing it is an open task; the importer is ready for the format either way.
+**Where the data comes from.** workout-cool's own catalogue is not public — their repo ships only
+`data/sample-exercises.csv` with 3 exercises (those 3 are in `supabase/seed.sql`). The catalogue
+instead comes from [free-exercise-db](https://github.com/yuhonas/free-exercise-db): 873 exercises
+under the **Unlicense**, i.e. public domain, no attribution required. wger was the other candidate
+and was rejected — its data is share-alike licensed, which would impose terms on anything built
+with it.
+
+`scripts/import-free-exercise-db.mts` maps every value in that dataset onto our enums explicitly
+and **throws on anything unmapped**, rather than dropping it. A silently missing muscle makes an
+exercise unfindable, which is worse than a failed import.
+
+The two sources dedupe against each other: both upsert on `slug`.
+
+> The image URLs point at `raw.githubusercontent.com`. Fine for development, wrong for production —
+> it hotlinks a third party with no uptime guarantee and rate limits. Rehost to Supabase Storage
+> before launch; only the `image_urls` values and one entry in `next.config.ts` change.
 
 ## Architecture
 
@@ -79,7 +93,8 @@ supabase/
 ├── seed.sql       Three sample exercises for local dev
 └── tests/         Schema + RLS tests (pnpm test:db)
 scripts/
-└── import-exercises.mts   CSV -> exercises pivot
+├── import-free-exercise-db.mts   JSON -> exercises (the main catalogue)
+└── import-exercises.mts          workout-cool CSV -> exercises pivot
 ```
 
 ### How auth works
@@ -131,6 +146,10 @@ workout app — *"what's my heaviest bench?"* — impossible to index or aggrega
 `reps`, `weight`, `weight_unit`, `duration_seconds` columns keep `max(weight)` and
 `sum(weight * reps)` as ordinary SQL, which is what `getSessionSummary()` relies on.
 
+**Added for the catalogue** (migration 6): `LOWER_BACK` and `MIDDLE_BACK`, because free-exercise-db
+distinguishes them and collapsing both into `BACK` would flatten 229 exercises; plus `force`
+(push/pull/static — the basis of push/pull/legs splits), `level`, and `image_urls`.
+
 **Left out for now:** training programs, billing/subscriptions, RevenueCat webhooks, and the
 six-language translation columns (`titleEn`, `titleEs`, `titlePt`…). The app is English-only, so
 each field is one column. All of it can come back as new migrations when there's a reason.
@@ -175,13 +194,14 @@ JWT; everything downstream of it is real Postgres.
 | `pnpm db:push` | Apply migrations to the linked project |
 | `pnpm db:reset` | Reset local DB and re-apply migrations + seed |
 | `pnpm db:types` | Regenerate DB types from the live schema |
+| `pnpm db:import-catalogue` | Import the free-exercise-db catalogue (873 exercises) |
 | `pnpm db:import-exercises <csv>` | Import a workout-cool exercise CSV |
 
 ## What's here, and what isn't
 
-Working: email/password signup and sign-in, session refresh, route gating, public exercise
-catalogue with muscle filters and search, exercise detail pages, dashboard with volume/set/session
-stats, and starting a workout session.
+Working: email/password signup and sign-in, session refresh, route gating, a 876-exercise public
+catalogue with images, muscle-group filters and search, exercise detail pages, dashboard with
+volume/set/session stats, and starting a workout session.
 
 Not built yet: the set-logging UI (the actions in
 `src/features/workout-session/api/workout-actions.ts` exist and are RLS-tested, but no screen calls

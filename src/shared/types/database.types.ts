@@ -66,6 +66,9 @@ export type Database = {
           secondary_muscles: Enums<"muscle_group">[];
           equipment: Enums<"equipment">[];
           mechanics: Enums<"mechanics_type"> | null;
+          force: Enums<"exercise_force"> | null;
+          level: Enums<"exercise_level"> | null;
+          image_urls: string[];
           is_published: boolean;
           created_at: string;
           updated_at: string;
@@ -84,6 +87,9 @@ export type Database = {
           secondary_muscles?: Enums<"muscle_group">[];
           equipment?: Enums<"equipment">[];
           mechanics?: Enums<"mechanics_type"> | null;
+          force?: Enums<"exercise_force"> | null;
+          level?: Enums<"exercise_level"> | null;
+          image_urls?: string[];
           is_published?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -102,6 +108,9 @@ export type Database = {
           secondary_muscles?: Enums<"muscle_group">[];
           equipment?: Enums<"equipment">[];
           mechanics?: Enums<"mechanics_type"> | null;
+          force?: Enums<"exercise_force"> | null;
+          level?: Enums<"exercise_level"> | null;
+          image_urls?: string[];
           is_published?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -310,6 +319,8 @@ export type Database = {
         | "NONE"
         | "OTHER"
         | "NA";
+      exercise_force: "PUSH" | "PULL" | "STATIC";
+      exercise_level: "BEGINNER" | "INTERMEDIATE" | "EXPERT";
       exercise_type:
         | "BODYWEIGHT"
         | "STRENGTH"
@@ -348,7 +359,9 @@ export type Database = {
         | "ROTATOR_CUFF"
         | "HIP_FLEXOR"
         | "ACHILLES_TENDON"
-        | "FINGERS";
+        | "FINGERS"
+        | "LOWER_BACK"
+        | "MIDDLE_BACK";
       user_role: "user" | "admin";
       weight_unit: "kg" | "lbs";
       workout_set_type: "TIME" | "WEIGHT" | "REPS" | "BODYWEIGHT";
