@@ -1,9 +1,53 @@
 import "server-only";
 
 import { createClient } from "@/shared/lib/supabase/server";
-import type { Tables } from "@/shared/types/database.types";
+import type { Enums, Tables } from "@/shared/types/database.types";
 
 export type Program = Tables<"programs">;
+
+// Bodyweight sits outside the member's owned list — everyone has their own
+// body — so a program tagged with these is doable no matter what they picked.
+const ALWAYS_AVAILABLE: Enums<"equipment">[] = ["BODY_ONLY", "NONE", "NA"];
+
+export type RecommendedProgram = Pick<
+  Program,
+  "id" | "slug" | "title" | "description" | "level" | "equipment" | "image_url" | "participant_count"
+>;
+
+/**
+ * Published programs a member can actually run with the equipment they have.
+ *
+ * "Doable" means every piece of equipment the program calls for is either owned
+ * or always-available (bodyweight); a program needing a barbell is not
+ * recommended to someone training at home with bands. An empty equipment list
+ * on a program is bodyweight and always qualifies.
+ *
+ * The subset filter runs here rather than in SQL: PostgREST's array operators
+ * cover overlap and containment in the other direction (does the column contain
+ * these values), not "is the column contained by this set". The candidate list
+ * is small — published programs only — so filtering in code is cheap and clear.
+ */
+export async function listRecommendedPrograms(
+  equipment: Enums<"equipment">[],
+  limit = 4,
+): Promise<RecommendedProgram[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("programs")
+    .select("id, slug, title, description, level, equipment, image_url, participant_count")
+    .eq("visibility", "PUBLISHED")
+    .order("participant_count", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to list recommended programs: ${error.message}`);
+  }
+
+  const available = new Set<string>([...equipment, ...ALWAYS_AVAILABLE]);
+
+  return data.filter((program) => program.equipment.every((e) => available.has(e))).slice(0, limit);
+}
 
 /**
  * Programs for the public catalogue.
