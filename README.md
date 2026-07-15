@@ -13,23 +13,35 @@ cp .env.example .env.local   # then fill in from your Supabase project
 pnpm dev
 ```
 
-The app runs at http://localhost:3000, but every page that touches data needs a database first.
+The app runs at http://localhost:3000. With a filled-in `.env.local` it talks to the live project
+and the catalogue renders immediately — the schema and seed are already applied.
 
-### Point it at a database
+### Applying migrations
 
-Nothing has been applied to a Supabase project yet — `supabase/migrations/` is the whole schema,
-waiting for a target. Pick one:
-
-**Cloud project**
+The schema in `supabase/migrations/` is already live on the project. To apply new migrations:
 
 ```bash
-supabase login
-supabase link --project-ref <your-project-ref>
-pnpm db:push          # applies supabase/migrations in order
-pnpm db:types         # regenerates src/shared/types/database.types.ts from the live schema
+supabase db push --db-url "$SUPABASE_DB_URL"    # SUPABASE_DB_URL comes from .env.local
 ```
 
-**Local stack** (needs Docker running)
+Two things that cost time the first time round, both already solved in `.env.local`:
+
+**Use the session pooler, not the direct connection.** `db.<ref>.supabase.co` resolves to IPv6
+only. If your network has no IPv6 route the host is simply unreachable, and the failure looks like
+a dead project rather than a routing problem. The pooler is IPv4. Its username is `postgres.<ref>`,
+not `postgres`, and its hostname prefix is not always `aws-0` — this project sits behind `aws-1`.
+Copy the string from Dashboard → Connect → Session pooler instead of assembling it by hand.
+
+**`supabase link` needs the CLI logged into the account that owns the project.** If
+`supabase projects list` doesn't show it, `link` fails with `Not Found` or a privileges error, and
+`pnpm db:push` / `pnpm db:types` (which rely on a link) won't work. The `--db-url` form above needs
+no account at all — it authenticates with the database password.
+
+`pnpm db:types` additionally needs Docker running: the generator runs `postgres-meta` in a
+container. Without it, edit `src/shared/types/database.types.ts` by hand and verify against the live
+schema.
+
+**Local stack instead** (needs Docker):
 
 ```bash
 supabase start        # prints the local URL and keys for .env.local
@@ -38,8 +50,8 @@ pnpm db:reset         # applies migrations + supabase/seed.sql
 
 ### Fill the exercise catalogue
 
-The catalogue starts empty. `supabase/seed.sql` inserts three exercises so the UI has something to
-render; for a real catalogue you need a CSV in workout-cool's export format:
+`supabase/seed.sql` has already inserted three exercises so the UI has something to render. For a
+real catalogue you need a CSV in workout-cool's export format:
 
 ```bash
 pnpm db:import-exercises data/exercises.csv
@@ -140,6 +152,12 @@ every constraint, and the aggregates the dashboard depends on.
 
 The suite was itself checked by breaking RLS on `workout_sessions` on purpose: 9 checks went red,
 including the read leak. Run it after any schema change.
+
+The same isolation was then re-verified against the **live project** with real JWTs, not just
+PGlite: a signed-out visitor reads the catalogue but zero sessions and zero profiles; a second
+signed-in user reads zero of the first user's sessions, cannot update them, and cannot forge a
+session owned by someone else (`42501`). The signup trigger and the `auth.users` → profiles →
+sessions delete cascade were confirmed there too.
 
 What's stubbed: the `auth` schema, the `anon`/`authenticated`/`service_role` roles, and the default
 privileges a real Supabase project bootstraps. `auth.uid()` reads a session variable instead of a
