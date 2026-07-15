@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ *
+ * Dark-first: the app is used in gyms, often one-handed between sets, where a
+ * white screen is the wrong default. Light mode still resolves via the media
+ * query below.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #08090b;
+  --surface: #101216;
+  --surface-raised: #171a20;
+  --border: #23272f;
+  --foreground: #f4f5f7;
+  --muted: #8b909b;
+  --accent: #d7ff3e;
+  --accent-foreground: #0b0d10;
+  --danger: #ff5f56;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #ffffff;
+    --surface: #f7f8fa;
+    --surface-raised: #ffffff;
+    --border: #e4e6eb;
+    --foreground: #12141a;
+    --muted: #5c6273;
+    --accent: #4d7c0f;
+    --accent-foreground: #ffffff;
+    --danger: #c0392b;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Tabular figures keep weights and reps from reflowing as they tick up. */
+.numeric {
+  font-family: var(--font-geist-mono), monospace;
+  font-variant-numeric: tabular-nums;
 }

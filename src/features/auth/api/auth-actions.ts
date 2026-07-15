@@ -1,0 +1,87 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+
+import { createClient } from "@/shared/lib/supabase/server";
+
+export type AuthFormState = { error: string | null; message?: string };
+
+function readCredentials(formData: FormData) {
+  return {
+    email: String(formData.get("email") ?? "").trim(),
+    password: String(formData.get("password") ?? ""),
+  };
+}
+
+/** Rejects absolute URLs so ?redirectTo= cannot bounce a signed-in user off-site. */
+function safeRedirectTo(value: FormDataEntryValue | null) {
+  const path = String(value ?? "");
+  return path.startsWith("/") && !path.startsWith("//") ? path : "/dashboard";
+}
+
+export async function signIn(_prevState: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const { email, password } = readCredentials(formData);
+
+  if (!email || !password) {
+    return { error: "Enter your email and password." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    // Supabase deliberately returns one message for unknown-email and
+    // wrong-password. Passing it through avoids leaking who has an account.
+    return { error: error.message };
+  }
+
+  revalidatePath("/", "layout");
+  redirect(safeRedirectTo(formData.get("redirectTo")));
+}
+
+export async function signUp(_prevState: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const { email, password } = readCredentials(formData);
+  const displayName = String(formData.get("displayName") ?? "").trim();
+
+  if (!email || !password) {
+    return { error: "Enter your email and password." };
+  }
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+
+  const origin = (await headers()).get("origin");
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      // Read by the handle_new_user trigger to seed profiles.display_name.
+      data: displayName ? { display_name: displayName } : undefined,
+      emailRedirectTo: `${origin}/auth/confirm`,
+    },
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  // With email confirmation on, Supabase returns a user but no session.
+  if (data.session) {
+    revalidatePath("/", "layout");
+    redirect("/dashboard");
+  }
+
+  return { error: null, message: "Check your inbox to confirm your address." };
+}
+
+export async function signOut() {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+
+  revalidatePath("/", "layout");
+  redirect("/login");
+}
