@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import Link from "next/link";
 
+import { getTrainingProfile } from "@/entities/profile/api/profile-queries";
 import {
   getActiveSession,
   getSessionSummary,
@@ -40,6 +41,15 @@ export default async function DashboardPage() {
   // non-null for TypeScript and covers the route being reached directly.
   if (!user) {
     redirect("/login?redirectTo=/dashboard");
+  }
+
+  // First landing after signup: ask the four questions once. onboarded_at is
+  // stamped whether they answer or skip, so this fires exactly once per person
+  // and never nags. Checked here rather than in proxy.ts -- the gate belongs on
+  // the page you land on, not on a profile lookup for every request in the app.
+  const profile = await getTrainingProfile();
+  if (profile && !profile.onboardedAt) {
+    redirect("/onboarding");
   }
 
   const [summary, sessions, active] = await Promise.all([

@@ -1,6 +1,8 @@
 import "server-only";
 
 import { getExerciseBySlug, listExercises } from "@/entities/exercise/api/exercise-queries";
+import { getTrainingProfile } from "@/entities/profile/api/profile-queries";
+import { effectiveEquipment } from "@/entities/profile/model/equipment-options";
 import { listPrograms, getProgramBySlug } from "@/entities/program/api/program-queries";
 import {
   getExerciseHistory,
@@ -31,7 +33,7 @@ export const COACH_TOOLS = [
     function: {
       name: "search_exercises",
       description:
-        "Search the exercise catalogue by name and/or filter by muscle. Use this to find exercises to suggest, or to resolve an exercise the user names loosely ('bench', 'squats') into a real catalogue entry with a slug.",
+        "Search the exercise catalogue by name and/or filter by muscle. Use this to find exercises to suggest, or to resolve an exercise the user names loosely ('bench', 'squats') into a real catalogue entry with a slug. Results are automatically limited to equipment the user has, so anything you get back is something they can actually do.",
       parameters: {
         type: "object",
         properties: {
@@ -48,6 +50,11 @@ export const COACH_TOOLS = [
                 "FULL_BODY", "ROTATOR_CUFF", "HIP_FLEXOR", "ACHILLES_TENDON", "FINGERS",
               ],
             },
+          },
+          include_unavailable: {
+            type: "boolean",
+            description:
+              "Search the whole catalogue, ignoring the user's equipment. Only when they ask about a specific exercise or machine they may not own ('how do I do a pec deck?'). Never use it to pad thin results — an exercise they cannot do is not a suggestion.",
           },
         },
       },
@@ -153,9 +160,26 @@ export async function runCoachTool(name: string, rawArgs: string): Promise<ToolR
   try {
     switch (name) {
       case "search_exercises": {
+        // Filtered to their kit by default, and the model cannot turn it off.
+        //
+        // This is the whole point of asking: a search that returns the pec deck
+        // to someone with two dumbbells makes the coach's suggestions noise. It
+        // is not a parameter because it is not the model's call -- exposing an
+        // `ignore_equipment` flag would just be a lever to pull when the search
+        // came back thin, which is exactly when it must not be pulled.
+        //
+        // include_unavailable exists for one honest case: they explicitly asked
+        // about something they may not own ("how do I use a cable machine?").
+        const profile = await getTrainingProfile();
+        const unfiltered = args.include_unavailable === true;
+        const doableWith = unfiltered
+          ? undefined
+          : (effectiveEquipment(profile?.availableEquipment ?? null) ?? undefined);
+
         const { exercises, total } = await listExercises({
           search: typeof args.search === "string" ? args.search : undefined,
           muscles: Array.isArray(args.muscles) ? (args.muscles as Enums<"muscle_group">[]) : undefined,
+          doableWith,
           perPage: 12,
         });
 
@@ -164,6 +188,10 @@ export async function runCoachTool(name: string, rawArgs: string): Promise<ToolR
           data: {
             total_matches: total,
             showing: exercises.length,
+            // Say which world these results come from, so the model can tell
+            // "nothing exists" from "nothing you can do" -- and say which, out
+            // loud, instead of reporting an empty catalogue.
+            filtered_to_their_equipment: doableWith !== undefined,
             exercises: exercises.map((e) => ({
               slug: e.slug,
               name: e.name,

@@ -2,8 +2,10 @@ import { OpenRouter } from "@openrouter/sdk";
 import type { ChatMessages } from "@openrouter/sdk/models";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { getTrainingProfile } from "@/entities/profile/api/profile-queries";
 import { COACH_MAX_TOKENS, COACH_SYSTEM_PROMPT } from "@/features/ai-coach/api/coach-config";
 import { COACH_TOOLS, runCoachTool } from "@/features/ai-coach/api/coach-tools";
+import { describeProfile } from "@/features/ai-coach/api/describe-profile";
 import {
   COACH_WRITE_TOOLS,
   WRITE_TOOL_NAMES,
@@ -168,11 +170,22 @@ export async function POST(request: NextRequest) {
   // built-in one, so a bad edit is recoverable by clearing the field.
   const basePrompt = config.systemPromptOverride ?? COACH_SYSTEM_PROMPT;
 
-  const systemText = notes?.length
-    ? `${basePrompt}\n\n## What you know about this user\n\n${notes
-        .map((n) => `- ${n.note}`)
-        .join("\n")}`
-    : basePrompt;
+  // The profile they filled in, and the notes the coach wrote itself. Two
+  // different kinds of knowledge and the prompt says so: one they typed and can
+  // edit at /profile, one the model inferred and can retract at /coach/memory.
+  const profile = await getTrainingProfile();
+
+  const systemText = [
+    basePrompt,
+    describeProfile(profile),
+    notes?.length
+      ? `## What you've worked out about them\n\nYour own notes from past conversations. They can delete any of these.\n\n${notes
+          .map((n) => `- ${n.note}`)
+          .join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   // Typed as the SDK's union, not inferred from this literal -- otherwise the
   // array narrows to system/user/assistant and the tool turns pushed inside the

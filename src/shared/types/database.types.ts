@@ -23,7 +23,11 @@ export type Database = {
           last_name: string;
           avatar_url: string | null;
           role: Enums<"user_role">;
-          onboarding_preferences: Json | null;
+          available_equipment: Enums<"equipment">[] | null;
+          training_goal: Enums<"training_goal"> | null;
+          sessions_per_week: number | null;
+          limitations: string | null;
+          onboarded_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -34,7 +38,11 @@ export type Database = {
           last_name?: string;
           avatar_url?: string | null;
           role?: Enums<"user_role">;
-          onboarding_preferences?: Json | null;
+          available_equipment?: Enums<"equipment">[] | null;
+          training_goal?: Enums<"training_goal"> | null;
+          sessions_per_week?: number | null;
+          limitations?: string | null;
+          onboarded_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -45,9 +53,40 @@ export type Database = {
           last_name?: string;
           avatar_url?: string | null;
           role?: Enums<"user_role">;
-          onboarding_preferences?: Json | null;
+          available_equipment?: Enums<"equipment">[] | null;
+          training_goal?: Enums<"training_goal"> | null;
+          sessions_per_week?: number | null;
+          limitations?: string | null;
+          onboarded_at?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      body_weight_entries: {
+        Row: {
+          id: string;
+          user_id: string;
+          weight: number;
+          weight_unit: Enums<"weight_unit">;
+          measured_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          weight: number;
+          weight_unit?: Enums<"weight_unit">;
+          measured_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          weight?: number;
+          weight_unit?: Enums<"weight_unit">;
+          measured_at?: string;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -818,6 +857,7 @@ export type Database = {
         | "FINGERS"
         | "LOWER_BACK"
         | "MIDDLE_BACK";
+      training_goal: "STRENGTH" | "HYPERTROPHY" | "ENDURANCE" | "WEIGHT_LOSS" | "GENERAL_FITNESS";
       user_role: "user" | "admin";
       weight_unit: "kg" | "lbs";
       workout_set_type: "TIME" | "WEIGHT" | "REPS" | "BODYWEIGHT";
