@@ -177,7 +177,18 @@ export type SetValues = {
   completed: boolean;
 };
 
-/** Appends a set, seeded from the previous one — the usual gym pattern. */
+/**
+ * Appends a set, seeded from the previous one — the usual gym pattern.
+ *
+ * "Previous" means the set above it in this workout. But the first set of an
+ * exercise has nothing above it, and that is exactly where a blank row is most
+ * annoying: you just walked up to the bench and the app makes you retype what
+ * you did last week. So when there is no set to copy in this session, we reach
+ * back to the last time this exercise was trained and seed from that.
+ *
+ * The seeded set is inserted uncompleted, so it is a suggestion, not a logged
+ * lift — nothing counts until the user taps done.
+ */
 export async function addSet(sessionId: string, sessionExerciseId: string) {
   const supabase = await createClient();
 
@@ -189,13 +200,54 @@ export async function addSet(sessionId: string, sessionExerciseId: string) {
     .limit(1)
     .maybeSingle();
 
+  // No set above it: seed the first set from the last time this exercise was
+  // trained. Query from workout_session_exercises so the session filter/order
+  // sits one level deep -- the nesting depth that getLastPerformances already
+  // proved works. The deeper "from workout_sets" shape typechecks but is where
+  // PostgREST embedded filters get unreliable.
+  let seed = last;
+  if (!seed) {
+    const { data: link } = await supabase
+      .from("workout_session_exercises")
+      .select("exercise_id")
+      .eq("id", sessionExerciseId)
+      .maybeSingle();
+
+    if (link) {
+      const { data: prior } = await supabase
+        .from("workout_session_exercises")
+        .select("workout_sessions!inner(id, started_at, ended_at), workout_sets(set_index, reps, weight, weight_unit, types, completed)")
+        .eq("exercise_id", link.exercise_id)
+        .not("workout_sessions.ended_at", "is", null)
+        .neq("workout_sessions.id", sessionId)
+        .order("started_at", { referencedTable: "workout_sessions", ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // The top completed set (lowest index) of that session is the seed.
+      const topSet = prior?.workout_sets
+        .filter((s) => s.completed)
+        .sort((a, b) => a.set_index - b.set_index)[0];
+
+      if (topSet) {
+        seed = {
+          set_index: -1,
+          reps: topSet.reps,
+          weight: topSet.weight,
+          weight_unit: topSet.weight_unit,
+          types: topSet.types,
+        };
+      }
+    }
+  }
+
   const { error } = await supabase.from("workout_sets").insert({
     workout_session_exercise_id: sessionExerciseId,
     set_index: (last?.set_index ?? -1) + 1,
-    types: last?.types ?? ["WEIGHT", "REPS"],
-    reps: last?.reps ?? null,
-    weight: last?.weight ?? null,
-    weight_unit: last?.weight_unit ?? (last?.weight != null ? "kg" : null),
+    types: seed?.types ?? ["WEIGHT", "REPS"],
+    reps: seed?.reps ?? null,
+    weight: seed?.weight ?? null,
+    weight_unit: seed?.weight_unit ?? (seed?.weight != null ? "kg" : null),
     completed: false,
   });
 
