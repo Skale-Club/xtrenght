@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { InstallPrompt } from "@/widgets/pwa/ui/install-prompt";
+import { ServiceWorkerRegistrar } from "@/widgets/pwa/ui/service-worker-registrar";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,6 +22,18 @@ export const metadata: Metadata = {
     template: "%s · Xtrenght",
   },
   description: "Track your training, build real strength.",
+  appleWebApp: {
+    title: "Xtrenght",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    // Belt and suspenders alongside the `mobile-web-app-capable` tag
+    // `appleWebApp` already emits -- older iOS only recognises this one.
+    "apple-mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
@@ -38,7 +53,11 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <ServiceWorkerRegistrar />
+        <InstallPrompt />
+      </body>
     </html>
   );
 }

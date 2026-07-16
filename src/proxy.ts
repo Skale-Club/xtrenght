@@ -11,9 +11,13 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Every path except static assets and image files. Auth cookies must be
-     * refreshed on navigations, not on asset fetches.
+     * Every path except static assets, image files, and the PWA surface
+     * (manifest, generated icons, service worker). Those must serve
+     * identically whether or not there's a session -- redirecting them to
+     * /login would hand the browser HTML where it expects JSON/PNG/JS, and
+     * would make the service worker's cache.addAll() throw on install
+     * (caching a redirected response is disallowed).
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest$|manifest-icons/|icon$|apple-icon$|sw\\.js$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

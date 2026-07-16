@@ -10,7 +10,19 @@ import type { Database } from "@/shared/types/database.types";
  * which exchanges the token for a session before redirecting there. Landing on it
  * without one means the link was never followed, and /login is the right answer.
  */
-const PUBLIC_ROUTES = ["/", "/login", "/signup", "/forgot-password", "/auth", "/exercises", "/programs"];
+const PUBLIC_ROUTES = [
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/auth",
+  "/exercises",
+  "/programs",
+  // Cached by the service worker at install time and served straight from
+  // Cache Storage while offline -- must render the same whether or not
+  // there's a session.
+  "/offline",
+];
 
 function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));

@@ -1,7 +1,9 @@
 import { OpenRouter } from "@openrouter/sdk";
+import type { ChatMessages } from "@openrouter/sdk/models";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { COACH_MAX_TOKENS, COACH_SYSTEM_PROMPT } from "@/features/ai-coach/api/coach-config";
+import { COACH_TOOLS, runCoachTool } from "@/features/ai-coach/api/coach-tools";
 import { getCoachConfig } from "@/shared/lib/supabase/config-reader";
 import { createClient } from "@/shared/lib/supabase/server";
 
@@ -146,7 +148,10 @@ export async function POST(request: NextRequest) {
         .join("\n")}`
     : basePrompt;
 
-  const messages = [
+  // Typed as the SDK's union, not inferred from this literal -- otherwise the
+  // array narrows to system/user/assistant and the tool turns pushed inside the
+  // loop below don't fit.
+  const messages: ChatMessages[] = [
     { role: "system" as const, content: systemText },
     ...history.map((row) => ({
       role: row.role,
@@ -170,34 +175,109 @@ export async function POST(request: NextRequest) {
       let answer = "";
 
       try {
-        // Streaming is required, not stylistic: a coaching answer plus
-        // reasoning runs past the point where a single response risks an HTTP
-        // timeout.
-        const result = await openrouter.chat.send({
-          chatRequest: {
-            model: config.model,
-            messages,
-            stream: true,
-            maxTokens: COACH_MAX_TOKENS,
-            cacheControl: { type: "ephemeral" },
-            reasoning: { effort: config.effort as "low" | "medium" | "high" | "xhigh" | "max" },
-          },
-        });
+        // The agentic loop. OpenRouter has no tool runner, so it is written out:
+        // ask, run whatever tools came back, feed the results in, ask again --
+        // until the model answers with text instead of another tool call.
+        //
+        // Bounded, because an unbounded loop against a paid API is a way to
+        // spend real money on a bug. Eight is far past what any real question
+        // needs; hitting it means something is wrong, not that the user asked
+        // something hard.
+        const MAX_TURNS = 8;
+        let turn = 0;
 
-        for await (const chunk of result) {
-          const delta = chunk.choices?.[0]?.delta;
-          if (!delta) continue;
+        while (turn < MAX_TURNS) {
+          turn += 1;
 
-          if (typeof delta.content === "string" && delta.content) {
-            answer += delta.content;
-            send({ type: "text", text: delta.content });
+          // Streaming is required, not stylistic: a coaching answer plus
+          // reasoning runs past the point where a single response risks an
+          // HTTP timeout.
+          const result = await openrouter.chat.send({
+            chatRequest: {
+              model: config.model,
+              messages,
+              stream: true,
+              maxTokens: COACH_MAX_TOKENS,
+              cacheControl: { type: "ephemeral" },
+              tools: COACH_TOOLS,
+              reasoning: { effort: config.effort as "low" | "medium" | "high" | "xhigh" | "max" },
+            },
+          });
+
+          let text = "";
+          // Tool calls stream in fragments: the name arrives once, the JSON
+          // arguments arrive a few characters at a time, keyed by index.
+          // Accumulate rather than expecting each chunk to be whole.
+          const pending = new Map<number, { id: string; name: string; args: string }>();
+
+          for await (const chunk of result) {
+            const delta = chunk.choices?.[0]?.delta;
+            if (!delta) continue;
+
+            if (typeof delta.content === "string" && delta.content) {
+              text += delta.content;
+              answer += delta.content;
+              send({ type: "text", text: delta.content });
+            }
+
+            // Reasoning arrives on its own field, not in content.
+            const reasoning = (delta as { reasoning?: string | null }).reasoning;
+            if (typeof reasoning === "string" && reasoning) {
+              send({ type: "thinking", text: reasoning });
+            }
+
+            for (const call of (delta as { toolCalls?: RawToolCall[] }).toolCalls ?? []) {
+              const index = call.index ?? 0;
+              const entry = pending.get(index) ?? { id: "", name: "", args: "" };
+              if (call.id) entry.id = call.id;
+              if (call.function?.name) entry.name = call.function.name;
+              if (call.function?.arguments) entry.args += call.function.arguments;
+              pending.set(index, entry);
+            }
           }
 
-          // Reasoning arrives on its own field, not in content.
-          const reasoning = (delta as { reasoning?: string | null }).reasoning;
-          if (typeof reasoning === "string" && reasoning) {
-            send({ type: "thinking", text: reasoning });
+          if (pending.size === 0) break; // answered with prose: done
+
+          const calls = [...pending.values()].filter((c) => c.name);
+
+          // camelCase, not snake_case: the SDK validates its *input* shape with
+          // Zod and serialises to the wire's tool_calls / tool_call_id itself.
+          // Writing the wire names here fails validation before the request is
+          // ever sent.
+          messages.push({
+            role: "assistant" as const,
+            content: text,
+            toolCalls: calls.map((c) => ({
+              id: c.id,
+              type: "function" as const,
+              function: { name: c.name, arguments: c.args || "{}" },
+            })),
+          });
+
+          // Independent reads -- run them together rather than serially.
+          const results = await Promise.all(
+            calls.map(async (call) => {
+              send({ type: "tool", name: call.name });
+              const outcome = await runCoachTool(call.name, call.args);
+              return { call, outcome };
+            }),
+          );
+
+          for (const { call, outcome } of results) {
+            messages.push({
+              role: "tool" as const,
+              toolCallId: call.id,
+              // Errors go back as content, not as a thrown turn: the model can
+              // read "no exercise with that slug" and search again.
+              content: JSON.stringify(outcome.ok ? outcome.data : { error: outcome.error }),
+            });
           }
+        }
+
+        if (turn >= MAX_TURNS && !answer) {
+          send({ type: "error", error: "The coach got stuck looking things up. Try again?" });
+          controller.close();
+          return;
         }
 
         if (!answer) {
@@ -244,6 +324,13 @@ export async function POST(request: NextRequest) {
     },
   });
 }
+
+/** One streamed fragment of a tool call. Assembled across chunks by index. */
+type RawToolCall = {
+  index?: number;
+  id?: string;
+  function?: { name?: string; arguments?: string };
+};
 
 /** Stored turns are block arrays; OpenRouter's shape wants a plain string. */
 function textOfStored(content: unknown): string {

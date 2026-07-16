@@ -9,12 +9,25 @@ type Turn = {
   role: "user" | "assistant";
   text: string;
   thinking?: string;
+  /** Tools the coach looked things up with, in call order. */
+  tools?: string[];
+};
+
+/** Tool names are for the model; these are for a person mid-workout. */
+const TOOL_LABEL: Record<string, string> = {
+  search_exercises: "Searching the catalogue",
+  get_exercise_details: "Reading the exercise",
+  get_exercise_history: "Checking your history",
+  get_recent_workouts: "Looking at your recent workouts",
+  get_training_summary: "Checking your totals",
+  list_programs: "Listing programs",
+  get_program_progress: "Checking your program",
 };
 
 const SUGGESTIONS = [
   "What should I train today?",
-  "How's my bench progressing?",
-  "I've got 30 minutes and only dumbbells.",
+  "What's my bench press PR?",
+  "Have I been training enough lately?",
 ];
 
 export function CoachChat({
@@ -100,6 +113,14 @@ export function CoachChat({
                   : turn,
               ),
             );
+          } else if (event.type === "tool") {
+            setTurns((prev) =>
+              prev.map((turn, i) =>
+                i === prev.length - 1
+                  ? { ...turn, tools: [...(turn.tools ?? []), event.name] }
+                  : turn,
+              ),
+            );
           } else if (event.type === "error") {
             setError(event.error);
           }
@@ -157,11 +178,21 @@ export function CoachChat({
                         : "max-w-[90%] text-sm leading-relaxed"
                     }
                   >
+                    {turn.role === "assistant" && turn.tools?.length ? (
+                      // Shown even after the answer lands: "checked your
+                      // history" is why the number is trustworthy.
+                      <p className="mb-1.5 text-xs text-muted">
+                        {[...new Set(turn.tools)]
+                          .map((t) => TOOL_LABEL[t] ?? t)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
+
                     {turn.role === "assistant" && turn.thinking && !turn.text ? (
                       <p className="text-xs italic text-muted">{turn.thinking}</p>
                     ) : null}
 
-                    {pending && !turn.thinking ? (
+                    {pending && !turn.thinking && !turn.tools?.length ? (
                       <span className="text-muted" aria-live="polite">
                         Thinking…
                       </span>
