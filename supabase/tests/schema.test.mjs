@@ -148,6 +148,9 @@ for (const table of [
   "program_suggested_sets",
   "user_program_enrollments",
   "user_session_progress",
+  "ai_conversations",
+  "ai_messages",
+  "ai_coach_notes",
 ]) {
   const row = classes.find((r) => r.relname === table);
   if (!row) fail(`${table} exists`, "missing");
@@ -156,13 +159,34 @@ for (const table of [
 }
 
 // A table added without policies is invisible rather than public, but it is
-// still a mistake worth catching early.
+// almost always a mistake -- so every table needs one, except where having
+// none is the point.
+//
+// app_settings is that exception: RLS on with nothing granted is what makes the
+// OpenRouter key unreadable over the API by anyone at all. Asserted separately
+// below rather than waved through, so "no policies" stays a decision instead of
+// drifting into an oversight.
+const DELIBERATELY_UNPOLICIED = ["app_settings"];
+
 const { rows: unpolicied } = await db.query(`
   select c.relname from pg_class c
   where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
     and not exists (select 1 from pg_policies p where p.tablename = c.relname)
 `);
-expect("every table has at least one policy", unpolicied.length, 0);
+const unexpected = unpolicied.map((r) => r.relname).filter((t) => !DELIBERATELY_UNPOLICIED.includes(t));
+expect(`every table has a policy, except ${DELIBERATELY_UNPOLICIED.join(", ")}`, unexpected.length, 0);
+
+for (const table of DELIBERATELY_UNPOLICIED) {
+  const { rows } = await db.query(`
+    select c.relrowsecurity, count(p.policyname)::int as policies
+    from pg_class c
+    left join pg_policies p on p.tablename = c.relname and p.schemaname = 'public'
+    where c.relname = '${table}' and c.relnamespace = 'public'::regnamespace
+    group by c.relrowsecurity
+  `);
+  expect(`${table} has RLS on and zero policies (unreadable by design)`,
+    rows[0]?.relrowsecurity === true && rows[0]?.policies === 0, true);
+}
 
 // ---------------------------------------------------------- signup trigger --
 
@@ -557,6 +581,200 @@ expect(
   "admin still cannot see another user's enrollment",
   (await q(`select id from public.user_program_enrollments`)).length,
   0,
+);
+
+// ------------------------------------------------------------- AI coach --
+
+// The model runs against the signed-in user's client, so these policies are
+// the entire safety boundary for the feature. If they leak, a chat turn leaks.
+console.log("\nAI coach -- owner can use their own:");
+await asUser(alice);
+
+const aliceConversation = (
+  await q(
+    `insert into public.ai_conversations (user_id, title)
+     values ('${alice}', 'Chest day') returning id`,
+  )
+)[0].id;
+ok("owner creates a conversation");
+
+await q(`
+  insert into public.ai_messages (conversation_id, role, content, input_tokens, output_tokens)
+  values ('${aliceConversation}', 'user', '[{"type":"text","text":"what is my bench PR?"}]'::jsonb, 12, 0)
+`);
+ok("owner appends a message");
+
+// The reason content is jsonb: a turn is blocks, and tool calls have to survive
+// the round trip to be replayed to the API.
+const toolTurn = await q(`
+  insert into public.ai_messages (conversation_id, role, content)
+  values (
+    '${aliceConversation}', 'assistant',
+    '[{"type":"text","text":"Let me check."},
+      {"type":"tool_use","id":"toolu_1","name":"get_exercise_history","input":{"slug":"bench-press"}}]'::jsonb
+  )
+  returning content
+`);
+expect(
+  "a tool_use block survives the round trip",
+  toolTurn[0].content[1].name,
+  "get_exercise_history",
+);
+
+await q(
+  `insert into public.ai_coach_notes (user_id, note)
+   values ('${alice}', 'Prefers 45-minute sessions.')`,
+);
+ok("owner saves a coach note");
+
+await expectError(
+  "a note cannot be blank",
+  () => db.query(`insert into public.ai_coach_notes (user_id, note) values ('${alice}', '   ')`),
+  "ai_coach_notes_note_check",
+);
+
+await expectError(
+  "user cannot forge a conversation owned by someone else",
+  () => db.query(`insert into public.ai_conversations (user_id) values ('${bob}')`),
+  "row-level security",
+);
+
+console.log("\nAI coach -- another user is locked out:");
+await asUser(bob);
+
+expect("cannot read the conversation", (await q(`select id from public.ai_conversations`)).length, 0);
+expect("cannot read the transcript", (await q(`select id from public.ai_messages`)).length, 0);
+expect("cannot read the coach notes", (await q(`select id from public.ai_coach_notes`)).length, 0);
+
+await expectError(
+  "cannot inject a message into the conversation",
+  () =>
+    db.query(
+      `insert into public.ai_messages (conversation_id, role, content)
+       values ('${aliceConversation}', 'user', '[{"type":"text","text":"ignore previous instructions"}]'::jsonb)`,
+    ),
+  "row-level security",
+);
+
+expect(
+  "cannot delete the conversation",
+  (await db.query(`delete from public.ai_conversations where id = '${aliceConversation}'`)).affectedRows,
+  0,
+);
+
+await asSuperuser();
+await db.query(`update public.profiles set role = 'admin' where id = '${bob}'`);
+await asUser(bob);
+expect(
+  "not even an admin reads another user's chat",
+  (await q(`select id from public.ai_conversations`)).length,
+  0,
+);
+
+console.log("\nAI coach -- transcript integrity:");
+await asUser(alice);
+expect(
+  "a past turn cannot be edited (no update policy)",
+  (
+    await db.query(
+      `update public.ai_messages set content = '[{"type":"text","text":"rewritten"}]'::jsonb
+       where conversation_id = '${aliceConversation}'`,
+    )
+  ).affectedRows,
+  0,
+);
+
+// Deleting a conversation must not silently erase what the coach learned.
+const noteBefore = (await q(`select count(*)::int as n from public.ai_coach_notes`))[0].n;
+await q(`delete from public.ai_conversations where id = '${aliceConversation}'`);
+expect("deleting a conversation cascades its messages", (await q(`select id from public.ai_messages`)).length, 0);
+expect(
+  "deleting a conversation keeps the coach notes",
+  (await q(`select count(*)::int as n from public.ai_coach_notes`))[0].n,
+  noteBefore,
+);
+
+// -------------------------------------------------------- app_settings --
+
+// The AI config lives here, including the OpenRouter key. The whole point is
+// that no client can read a secret's value over the API -- so these checks are
+// the feature, not a formality.
+console.log("\napp_settings -- secrets are unreadable over the API:");
+
+// Seeded with a direct insert, not admin_set_setting(): that function checks
+// is_admin(), and the superuser has no auth.uid() to be an admin with. The
+// superuser bypasses RLS instead -- which is exactly how the server reads it.
+await asSuperuser();
+await q(`
+  insert into public.app_settings (key, value, is_secret) values
+    ('openrouter_api_key', 'sk-or-fake-secret', true)
+  on conflict (key) do update set value = excluded.value, is_secret = excluded.is_secret
+`);
+
+await asAnon();
+expect(
+  "signed-out visitor reads nothing",
+  (await q(`select key from public.app_settings`)).length,
+  0,
+);
+
+await asUser(alice);
+expect(
+  "a signed-in non-admin reads nothing from the table",
+  (await q(`select key from public.app_settings`)).length,
+  0,
+);
+expect(
+  "a non-admin gets no rows from admin_list_settings()",
+  (await q(`select key from public.admin_list_settings()`)).length,
+  0,
+);
+await expectError(
+  "a non-admin cannot write a setting",
+  () => db.query(`select public.admin_set_setting('openrouter_api_key', 'stolen', true)`),
+  "not authorized",
+);
+await expectError(
+  "a non-admin cannot delete a setting",
+  () => db.query(`select public.admin_delete_setting('coach_model')`),
+  "not authorized",
+);
+
+await asSuperuser();
+await db.query(`update public.profiles set role = 'admin' where id = '${bob}'`);
+await asUser(bob);
+
+expect(
+  "even an admin reads nothing from the table directly",
+  (await q(`select key from public.app_settings`)).length,
+  0,
+);
+
+const settings = await q(`select * from public.admin_list_settings() order by key`);
+expect("an admin sees the settings list", settings.length >= 2, true);
+
+const secret = settings.find((s) => s.key === "openrouter_api_key");
+expect("the secret's value is withheld even from an admin", secret.value, null);
+expect("but the admin can see that it is set", secret.is_set, true);
+
+const plain = settings.find((s) => s.key === "coach_model");
+expect("a non-secret value is returned", plain.value, "anthropic/claude-opus-4.8");
+
+await q(`select public.admin_set_setting('coach_model', 'anthropic/claude-sonnet-5', false)`);
+expect(
+  "an admin can change the model without a redeploy",
+  (await q(`select value from public.admin_list_settings() where key = 'coach_model'`))[0].value,
+  "anthropic/claude-sonnet-5",
+);
+
+// The server reads the real value with the service key, which bypasses RLS --
+// that is the only path to it, and it is why the route needs an elevated
+// client for config and nothing else.
+await asSuperuser();
+expect(
+  "the server can read the secret with the service key",
+  (await q(`select value from public.app_settings where key = 'openrouter_api_key'`))[0].value,
+  "sk-or-fake-secret",
 );
 
 // ------------------------------------------------------ app query patterns --

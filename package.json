@@ -17,6 +17,7 @@
     "db:rehost-images": "node --env-file=.env.local scripts/upload-exercise-images.mts"
   },
   "dependencies": {
+    "@openrouter/sdk": "^0.13.57",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.5",
     "next": "16.2.10",

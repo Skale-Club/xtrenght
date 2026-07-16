@@ -33,6 +33,9 @@ export async function SiteHeader() {
 
           {user ? (
             <>
+              <ButtonLink href="/coach" variant="ghost">
+                Coach
+              </ButtonLink>
               {profile?.role === "admin" ? (
                 <ButtonLink href="/admin/programs" variant="ghost" className="hidden sm:inline-flex">
                   Admin

@@ -547,6 +547,133 @@ export type Database = {
           },
         ];
       };
+      ai_conversations: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          title?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      ai_messages: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          role: Enums<"ai_message_role">;
+          content: Json;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          cache_read_tokens: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          conversation_id: string;
+          role: Enums<"ai_message_role">;
+          content: Json;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          cache_read_tokens?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          conversation_id?: string;
+          role?: Enums<"ai_message_role">;
+          content?: Json;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          cache_read_tokens?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_messages_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ai_coach_notes: {
+        Row: {
+          id: string;
+          user_id: string;
+          note: string;
+          source_message_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          note: string;
+          source_message_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          note?: string;
+          source_message_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_coach_notes_source_message_id_fkey";
+            columns: ["source_message_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_messages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      app_settings: {
+        Row: {
+          key: string;
+          value: string;
+          is_secret: boolean;
+          description: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          key: string;
+          value: string;
+          is_secret?: boolean;
+          description?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          key?: string;
+          value?: string;
+          is_secret?: boolean;
+          description?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<never, never>;
     Functions: {
@@ -566,6 +693,34 @@ export type Database = {
         Args: { enrollment_id: string };
         Returns: boolean;
       };
+      owns_ai_conversation: {
+        Args: { conversation_id: string };
+        Returns: boolean;
+      };
+      admin_list_settings: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          key: string;
+          value: string | null;
+          is_secret: boolean;
+          is_set: boolean;
+          description: string | null;
+          updated_at: string;
+        }[];
+      };
+      admin_set_setting: {
+        Args: {
+          setting_key: string;
+          setting_value: string;
+          setting_is_secret?: boolean;
+          setting_description?: string | null;
+        };
+        Returns: undefined;
+      };
+      admin_delete_setting: {
+        Args: { setting_key: string };
+        Returns: undefined;
+      };
       program_is_readable: {
         Args: { program_id: string };
         Returns: boolean;
@@ -580,6 +735,7 @@ export type Database = {
       };
     };
     Enums: {
+      ai_message_role: "user" | "assistant";
       equipment:
         | "DUMBBELL"
         | "KETTLEBELLS"
