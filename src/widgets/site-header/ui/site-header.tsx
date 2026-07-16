@@ -47,8 +47,8 @@ export async function SiteHeader() {
               <ButtonLink href="/dashboard" variant="ghost">
                 Dashboard
               </ButtonLink>
-              <ButtonLink href="/profile" variant="ghost" className="hidden sm:inline-flex">
-                Profile
+              <ButtonLink href="/settings" variant="ghost" className="hidden sm:inline-flex">
+                Settings
               </ButtonLink>
               <form action={signOut}>
                 <Button variant="secondary" type="submit">

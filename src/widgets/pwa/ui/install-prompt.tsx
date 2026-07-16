@@ -4,8 +4,6 @@ import { useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/shared/ui/button";
 
-const DISMISSED_KEY = "xtrenght-install-dismissed";
-
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -58,19 +56,21 @@ function getIsStandalone() {
   );
 }
 
-function getWasDismissed() {
-  return localStorage.getItem(DISMISSED_KEY) === "1";
-}
-
 function getServerFalse() {
   return false;
 }
 
-// Chrome/Edge/Android fire `beforeinstallprompt` and let us drive a custom
-// button; Safari on iOS never fires it, so those users get static
-// "Add to Home Screen" instructions instead. Either way the banner backs off
-// once the app is already running standalone or the user has dismissed it.
-export function InstallPrompt() {
+/**
+ * The install control, now living in Settings rather than as a floating banner
+ * over every page. A prompt to install belongs somewhere you go looking for it,
+ * not in your face while you're mid-set.
+ *
+ * Chrome/Edge/Android fire `beforeinstallprompt` and let us drive a real button;
+ * Safari on iOS never fires it, so those users get the "Add to Home Screen"
+ * instructions. Once the app is already running standalone there is nothing to
+ * install, so it says so.
+ */
+export function InstallButton() {
   const prompt = useSyncExternalStore(
     subscribeToInstallPrompt,
     getInstallPromptSnapshot,
@@ -78,54 +78,45 @@ export function InstallPrompt() {
   );
   const isIOS = useSyncExternalStore(noopSubscribe, getIsIOS, getServerFalse);
   const isStandalone = useSyncExternalStore(noopSubscribe, getIsStandalone, getServerFalse);
-  const persistedDismissed = useSyncExternalStore(noopSubscribe, getWasDismissed, getServerFalse);
-  const [sessionDismissed, setSessionDismissed] = useState(false);
-
-  const dismissed = persistedDismissed || sessionDismissed;
-  const visible = !dismissed && !isStandalone && (isIOS || prompt !== null);
-
-  function dismiss() {
-    localStorage.setItem(DISMISSED_KEY, "1");
-    setSessionDismissed(true);
-  }
+  const [installed, setInstalled] = useState(false);
 
   async function install() {
     if (!prompt) return;
     await prompt.prompt();
-    await prompt.userChoice;
+    const choice = await prompt.userChoice;
     deferredPrompt = null;
     notifyListeners();
-    setSessionDismissed(true);
+    if (choice.outcome === "accepted") setInstalled(true);
   }
 
-  if (!visible) return null;
+  if (isStandalone || installed) {
+    return <p className="text-sm text-muted">Xtrenght is installed on this device.</p>;
+  }
 
+  if (isIOS) {
+    return (
+      <p className="text-sm text-muted">
+        In Safari, tap the share icon, then <span className="text-foreground">Add to Home Screen</span>.
+      </p>
+    );
+  }
+
+  if (prompt) {
+    return (
+      <div className="flex items-center gap-3">
+        <Button variant="primary" onClick={install}>
+          Install app
+        </Button>
+        <span className="text-xs text-muted">Full-screen, on your home screen.</span>
+      </div>
+    );
+  }
+
+  // Eligible browsers fire the event; if it hasn't, the app is either already
+  // installed or the browser installs via its own menu.
   return (
-    <div className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center justify-between gap-4 rounded-xl border border-border bg-surface-raised p-4 shadow-lg sm:inset-x-auto sm:right-4">
-      <div>
-        <p className="text-sm font-semibold">Install Xtrenght</p>
-        <p className="mt-1 text-xs text-muted">
-          {isIOS
-            ? 'Tap the share icon, then "Add to Home Screen".'
-            : "Add it to your home screen for quick, full-screen access."}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-2">
-        {!isIOS ? (
-          <Button variant="primary" className="px-3 py-1.5 text-xs" onClick={install}>
-            Install
-          </Button>
-        ) : null}
-        <button
-          type="button"
-          onClick={dismiss}
-          aria-label="Dismiss"
-          className="text-muted hover:text-foreground"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
+    <p className="text-sm text-muted">
+      Use your browser&apos;s menu to install Xtrenght — look for “Install app” or “Add to Home Screen”.
+    </p>
   );
 }

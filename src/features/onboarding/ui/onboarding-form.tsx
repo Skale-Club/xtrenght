@@ -4,16 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { EQUIPMENT_OPTIONS } from "@/entities/profile/model/equipment-options";
+import { GOAL_OPTIONS } from "@/entities/profile/model/goals";
 import { saveTrainingProfile, skipOnboarding } from "@/features/onboarding/api/profile-actions";
 import { Button } from "@/shared/ui/button";
 
-const GOALS = [
-  { value: "STRENGTH", label: "Get stronger", hint: "Heavier lifts, lower reps" },
-  { value: "HYPERTROPHY", label: "Build muscle", hint: "More volume, moderate reps" },
-  { value: "ENDURANCE", label: "Build endurance", hint: "Higher reps, shorter rest" },
-  { value: "WEIGHT_LOSS", label: "Lose weight", hint: "Work capacity, calorie burn" },
-  { value: "GENERAL_FITNESS", label: "Stay in shape", hint: "A bit of everything" },
-];
+const GOALS = GOAL_OPTIONS;
 
 type Props = {
   initial?: {

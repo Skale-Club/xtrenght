@@ -9,6 +9,7 @@ import {
   getSessionSummary,
   listRecentSessions,
 } from "@/entities/workout/api/workout-queries";
+import { OnboardingWizard } from "@/features/onboarding/ui/onboarding-wizard";
 import { createClient } from "@/shared/lib/supabase/server";
 import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 import { StartWorkoutButton } from "@/features/workout-session/ui/start-workout-button";
@@ -43,14 +44,12 @@ export default async function DashboardPage() {
     redirect("/login?redirectTo=/dashboard");
   }
 
-  // First landing after signup: ask the four questions once. onboarded_at is
-  // stamped whether they answer or skip, so this fires exactly once per person
-  // and never nags. Checked here rather than in proxy.ts -- the gate belongs on
-  // the page you land on, not on a profile lookup for every request in the app.
+  // First landing after signup: the setup wizard opens over the dashboard.
+  // onboarded_at is stamped whether they answer or skip, so it shows once and
+  // never nags. A modal rather than a redirect so there's a real page behind it
+  // -- skipping leaves you already where you meant to be.
   const profile = await getTrainingProfile();
-  if (profile && !profile.onboardedAt) {
-    redirect("/onboarding");
-  }
+  const needsOnboarding = Boolean(profile && !profile.onboardedAt);
 
   const [summary, sessions, active] = await Promise.all([
     getSessionSummary(),
@@ -61,6 +60,8 @@ export default async function DashboardPage() {
   return (
     <>
       <SiteHeader />
+
+      {needsOnboarding ? <OnboardingWizard displayName={profile?.displayName ?? "there"} /> : null}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12">
         <div className="mb-10 flex flex-wrap items-center justify-between gap-4">

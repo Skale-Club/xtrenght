@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
-import { InstallPrompt } from "@/widgets/pwa/ui/install-prompt";
 import { ServiceWorkerRegistrar } from "@/widgets/pwa/ui/service-worker-registrar";
 
 import "./globals.css";
@@ -56,7 +55,6 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <ServiceWorkerRegistrar />
-        <InstallPrompt />
       </body>
     </html>
   );
