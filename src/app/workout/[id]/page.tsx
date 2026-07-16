@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { getWorkoutSession } from "@/entities/workout/api/workout-queries";
+import { getLastPerformances, getWorkoutSession } from "@/entities/workout/api/workout-queries";
 import { ExercisePicker } from "@/features/workout-session/ui/exercise-picker";
 import { FinishWorkoutButton } from "@/features/workout-session/ui/finish-workout-button";
 import { RestTimer } from "@/features/workout-session/ui/rest-timer";
@@ -30,6 +30,12 @@ export default async function WorkoutPage({ params }: { params: Promise<{ id: st
 
   const finished = session.ended_at !== null;
   const exercises = session.workout_session_exercises;
+
+  // What they last did for each of these exercises, to show while logging.
+  const lastPerformances = await getLastPerformances(
+    exercises.map((e) => e.exercises?.id).filter((id): id is string => Boolean(id)),
+    session.id,
+  );
 
   const completedSets = exercises.reduce(
     (n, exercise) => n + exercise.workout_sets.filter((set) => set.completed).length,
@@ -85,6 +91,11 @@ export default async function WorkoutPage({ params }: { params: Promise<{ id: st
                 key={sessionExercise.id}
                 sessionId={session.id}
                 sessionExercise={sessionExercise}
+                lastPerformance={
+                  sessionExercise.exercises
+                    ? (lastPerformances.get(sessionExercise.exercises.id) ?? null)
+                    : null
+                }
                 readOnly={finished}
               />
             ))}

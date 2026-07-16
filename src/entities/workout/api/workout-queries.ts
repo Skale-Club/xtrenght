@@ -204,6 +204,72 @@ export async function getExerciseHistory(exerciseId: string, limit = 20): Promis
   return { entries, personalRecordKg, totalSets };
 }
 
+export type LastPerformance = {
+  date: string;
+  sets: { weightKg: number | null; reps: number | null }[];
+  topWeightKg: number | null;
+};
+
+/**
+ * For each exercise in the current workout, what they did the last time they
+ * trained it -- the number a lifter wants in front of them while deciding
+ * today's load.
+ *
+ * One round trip for the whole session, grouped in JS: PostgREST orders the
+ * embedded sessions but not the parent rows, so "most recent per exercise" has
+ * to be resolved here anyway. `excludeSessionId` drops the session being viewed
+ * -- without it, an already-finished workout would cite itself as "last time".
+ */
+export async function getLastPerformances(
+  exerciseIds: string[],
+  excludeSessionId: string,
+): Promise<Map<string, LastPerformance>> {
+  if (exerciseIds.length === 0) return new Map();
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("workout_session_exercises")
+    .select(
+      `
+      exercise_id,
+      workout_sessions!inner ( id, started_at, ended_at ),
+      workout_sets ( weight, weight_unit, reps, completed )
+    `,
+    )
+    .in("exercise_id", exerciseIds)
+    .not("workout_sessions.ended_at", "is", null);
+
+  if (error) {
+    throw new Error(`Failed to load last performances: ${error.message}`);
+  }
+
+  const best = new Map<string, LastPerformance>();
+
+  for (const row of data) {
+    const session = row.workout_sessions;
+    if (!session || session.id === excludeSessionId) continue;
+
+    // A set you planned and skipped is not a lift, so it is not "what you did".
+    const done = row.workout_sets.filter((set) => set.completed);
+    if (done.length === 0) continue;
+
+    const existing = best.get(row.exercise_id);
+    if (existing && new Date(existing.date) >= new Date(session.started_at)) continue;
+
+    const sets = done.map((set) => ({ weightKg: toKg(set.weight, set.weight_unit), reps: set.reps }));
+    const weights = sets.map((s) => s.weightKg).filter((w): w is number => w !== null);
+
+    best.set(row.exercise_id, {
+      date: session.started_at,
+      sets,
+      topWeightKg: weights.length ? Math.max(...weights) : null,
+    });
+  }
+
+  return best;
+}
+
 export type SessionSummary = {
   totalSessions: number;
   completedSets: number;
