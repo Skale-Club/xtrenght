@@ -53,6 +53,21 @@ body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
+/*
+ * Tailwind v4's Preflight dropped the old `cursor: pointer` default on buttons.
+ * Restore it system-wide so every clickable control shows the hand cursor,
+ * while leaving disabled controls with the not-allowed cursor.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 /* Tabular figures keep weights and reps from reflowing as they tick up. */
 .numeric {
   font-family: var(--font-geist-mono), monospace;
