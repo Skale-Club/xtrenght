@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+
+type Pending = { toolCallId: string; name: string; args: string; summary: string };
 
 type Turn = {
   id: string;
@@ -11,6 +14,10 @@ type Turn = {
   thinking?: string;
   /** Tools the coach looked things up with, in call order. */
   tools?: string[];
+  /** A write the coach wants to make. Nothing happens until it's approved. */
+  pending?: Pending;
+  /** What actually got written, once approved. */
+  wrote?: { name: string; ok: boolean; url: string | null };
 };
 
 /** Tool names are for the model; these are for a person mid-workout. */
@@ -22,6 +29,13 @@ const TOOL_LABEL: Record<string, string> = {
   get_training_summary: "Checking your totals",
   list_programs: "Listing programs",
   get_program_progress: "Checking your program",
+  // Writes land here too, once approved -- the run is what's being narrated,
+  // and "start_workout" is not something to show a person mid-set.
+  start_workout: "Starting your workout",
+  add_exercise_to_workout: "Adding the exercise",
+  set_prescription: "Planning your sets",
+  follow_program: "Enrolling you in the program",
+  save_coach_note: "Making a note",
 };
 
 const SUGGESTIONS = [
@@ -43,32 +57,37 @@ export function CoachChat({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Keys for turns that exist only locally until the server names them. A
+  // counter, not Date.now(): two turns in the same millisecond would collide,
+  // and the compiler is right that reading the clock in render scope is impure.
+  const localTurns = useRef(0);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns, streaming]);
 
-  async function send(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || streaming) return;
+  /** One request to the coach: a message, or a decision about a pending write. */
+  async function run(payload: Record<string, unknown>, optimisticText?: string) {
+    if (streaming) return;
 
-    setInput("");
     setError(null);
     setStreaming(true);
 
-    // Optimistic: the user's turn is theirs, it doesn't need a round trip.
-    const localId = `local-${turns.length}`;
+    const localId = `local-${localTurns.current++}`;
     setTurns((prev) => [
       ...prev,
-      { id: localId, role: "user", text: trimmed },
-      { id: `${localId}-reply`, role: "assistant", text: "" },
+      // A decision has no user turn -- they tapped a button, they didn't speak.
+      ...(optimisticText
+        ? [{ id: localId, role: "user" as const, text: optimisticText }]
+        : []),
+      { id: `${localId}-reply`, role: "assistant" as const, text: "" },
     ]);
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, message: trimmed }),
+        body: JSON.stringify({ conversationId, ...payload }),
       });
 
       if (!response.ok || !response.body) {
@@ -121,6 +140,30 @@ export function CoachChat({
                   : turn,
               ),
             );
+          } else if (event.type === "confirm") {
+            setTurns((prev) =>
+              prev.map((turn, i) =>
+                i === prev.length - 1
+                  ? {
+                      ...turn,
+                      pending: {
+                        toolCallId: event.toolCallId,
+                        name: event.name,
+                        args: event.args,
+                        summary: event.summary,
+                      },
+                    }
+                  : turn,
+              ),
+            );
+          } else if (event.type === "wrote") {
+            setTurns((prev) =>
+              prev.map((turn, i) =>
+                i === prev.length - 1
+                  ? { ...turn, wrote: { name: event.name, ok: event.ok, url: event.url } }
+                  : turn,
+              ),
+            );
           } else if (event.type === "error") {
             setError(event.error);
           }
@@ -132,6 +175,24 @@ export function CoachChat({
       setStreaming(false);
     }
   }
+
+  const send = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setInput("");
+    void run({ message: trimmed }, trimmed);
+  };
+
+  /** Approve or refuse a proposed write. Nothing was written before this. */
+  const decide = (pending: Pending, approved: boolean) => {
+    // Clear the prompt first so it can't be double-tapped into two writes.
+    setTurns((prev) => prev.map((t) => (t.pending === pending ? { ...t, pending: undefined } : t)));
+    void run(
+      approved
+        ? { approve: { toolCallId: pending.toolCallId, name: pending.name, args: pending.args } }
+        : { reject: { toolCallId: pending.toolCallId, name: pending.name } },
+    );
+  };
 
   const empty = turns.length === 0;
 
@@ -164,7 +225,7 @@ export function CoachChat({
         ) : (
           <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-8">
             {turns.map((turn, index) => {
-              const pending = streaming && index === turns.length - 1 && !turn.text;
+              const isThinking = streaming && index === turns.length - 1 && !turn.text;
 
               return (
                 <li
@@ -192,7 +253,7 @@ export function CoachChat({
                       <p className="text-xs italic text-muted">{turn.thinking}</p>
                     ) : null}
 
-                    {pending && !turn.thinking && !turn.tools?.length ? (
+                    {isThinking && !turn.thinking && !turn.tools?.length ? (
                       <span className="text-muted" aria-live="polite">
                         Thinking…
                       </span>
@@ -200,6 +261,36 @@ export function CoachChat({
                       // Whitespace is meaningful: the model writes paragraphs.
                       <span className="whitespace-pre-wrap">{turn.text}</span>
                     )}
+
+                    {turn.pending ? (
+                      <div className="mt-3 rounded-xl border border-accent/40 bg-surface p-3">
+                        <p className="text-sm font-medium">{turn.pending.summary}</p>
+                        <p className="mt-0.5 text-xs text-muted">
+                          Nothing has changed yet.
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <Button onClick={() => decide(turn.pending!, true)} disabled={streaming}>
+                            Do it
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => decide(turn.pending!, false)}
+                            disabled={streaming}
+                          >
+                            No
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {turn.wrote?.ok && turn.wrote.url ? (
+                      <Link
+                        href={turn.wrote.url}
+                        className="mt-2 inline-block text-xs font-semibold text-accent hover:underline"
+                      >
+                        Open it →
+                      </Link>
+                    ) : null}
                   </div>
                 </li>
               );
@@ -238,7 +329,10 @@ export function CoachChat({
           </form>
 
           <p className="mt-2 text-center text-[0.65rem] text-muted">
-            Coaching advice, not medical advice.
+            Coaching advice, not medical advice.{" "}
+            <Link href="/coach/memory" className="underline hover:text-foreground">
+              What it remembers
+            </Link>
           </p>
         </div>
       </div>

@@ -4,6 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { COACH_MAX_TOKENS, COACH_SYSTEM_PROMPT } from "@/features/ai-coach/api/coach-config";
 import { COACH_TOOLS, runCoachTool } from "@/features/ai-coach/api/coach-tools";
+import {
+  COACH_WRITE_TOOLS,
+  WRITE_TOOL_NAMES,
+  describeWrite,
+  runCoachWrite,
+} from "@/features/ai-coach/api/coach-write-tools";
 import { getCoachConfig } from "@/shared/lib/supabase/config-reader";
 import { createClient } from "@/shared/lib/supabase/server";
 
@@ -51,7 +57,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  let body: { conversationId?: string; message?: string };
+  let body: {
+    conversationId?: string;
+    message?: string;
+    /** An approved write, sent back after the user taps confirm. */
+    approve?: { toolCallId: string; name: string; args: string };
+    /** A refused write -- the model is told, so it can offer something else. */
+    reject?: { toolCallId: string; name: string };
+  };
   try {
     body = await request.json();
   } catch {
@@ -59,8 +72,15 @@ export async function POST(request: NextRequest) {
   }
 
   const message = String(body.message ?? "").trim();
-  if (!message) {
+  const decision = body.approve ?? body.reject ?? null;
+
+  // A confirmation carries no message -- the user tapped a button, they did not
+  // type. Requiring one here would make the whole approval flow impossible.
+  if (!message && !decision) {
     return NextResponse.json({ error: "Say something." }, { status: 400 });
+  }
+  if (decision && !body.conversationId) {
+    return NextResponse.json({ error: "Nothing to confirm." }, { status: 400 });
   }
 
   // ---------------------------------------------------------- conversation --
@@ -115,19 +135,25 @@ export async function POST(request: NextRequest) {
     .limit(40);
 
   // Persist the user's turn before calling the model: if the request dies
-  // mid-stream, what they said is still in the transcript.
-  const { data: userMessage, error: insertError } = await supabase
-    .from("ai_messages")
-    .insert({
-      conversation_id: conversationId,
-      role: "user",
-      content: [{ type: "text", text: message }],
-    })
-    .select("id")
-    .single();
+  // mid-stream, what they said is still in the transcript. A confirmation has
+  // no turn to persist -- the pending call is already in the history.
+  let userMessageId: string | null = null;
 
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+  if (message) {
+    const { data: inserted, error: insertError } = await supabase
+      .from("ai_messages")
+      .insert({
+        conversation_id: conversationId,
+        role: "user",
+        content: [{ type: "text", text: message }],
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
+    userMessageId = inserted.id;
   }
 
   // OpenRouter speaks the OpenAI shape: the system prompt is a message with
@@ -153,12 +179,12 @@ export async function POST(request: NextRequest) {
   // loop below don't fit.
   const messages: ChatMessages[] = [
     { role: "system" as const, content: systemText },
-    ...history.map((row) => ({
-      role: row.role,
-      content: textOfStored(row.content),
-    })),
-    { role: "user" as const, content: message },
+    ...history.flatMap(replayTurn),
   ];
+
+  if (message) {
+    messages.push({ role: "user" as const, content: message });
+  }
 
   // --------------------------------------------------------------- stream --
 
@@ -170,11 +196,46 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
-      send({ type: "conversation", conversationId, userMessageId: userMessage.id });
+      send({ type: "conversation", conversationId, userMessageId });
 
       let answer = "";
 
       try {
+        // A confirmation resumes a turn that stopped mid-flight: the pending
+        // call is already the last thing in the replayed history, so all that's
+        // missing is its result. Run it (or report the refusal) and let the
+        // loop below carry on from there.
+        if (decision) {
+          if (body.approve) {
+            send({ type: "tool", name: body.approve.name });
+            const outcome = await runCoachWrite(body.approve.name, body.approve.args);
+            send({
+              type: "wrote",
+              name: body.approve.name,
+              ok: outcome.ok,
+              // A url means "go look at it" -- surfaced so the UI can link.
+              url: outcome.ok ? (outcome.data as { url?: string }).url ?? null : null,
+            });
+            messages.push({
+              role: "tool" as const,
+              toolCallId: body.approve.toolCallId,
+              content: JSON.stringify(outcome.ok ? outcome.data : { error: outcome.error }),
+            });
+          } else if (body.reject) {
+            messages.push({
+              role: "tool" as const,
+              toolCallId: body.reject.toolCallId,
+              // Phrased as an outcome, not an error: the user declining is a
+              // normal answer, and the model should offer an alternative rather
+              // than apologise for a failure.
+              content: JSON.stringify({
+                declined: true,
+                note: "The user declined this action. Do not retry it. Acknowledge briefly and offer an alternative if there is one.",
+              }),
+            });
+          }
+        }
+
         // The agentic loop. OpenRouter has no tool runner, so it is written out:
         // ask, run whatever tools came back, feed the results in, ask again --
         // until the model answers with text instead of another tool call.
@@ -199,7 +260,7 @@ export async function POST(request: NextRequest) {
               stream: true,
               maxTokens: COACH_MAX_TOKENS,
               cacheControl: { type: "ephemeral" },
-              tools: COACH_TOOLS,
+              tools: [...COACH_TOOLS, ...COACH_WRITE_TOOLS],
               reasoning: { effort: config.effort as "low" | "medium" | "high" | "xhigh" | "max" },
             },
           });
@@ -254,6 +315,51 @@ export async function POST(request: NextRequest) {
             })),
           });
 
+          // A write stops the turn. RLS and the constraints keep the model from
+          // writing anything *invalid*; they say nothing about writing
+          // something valid the user never asked for. Starting a workout
+          // uninvited breaks no constraint at all -- so the gate is consent,
+          // and it lives here.
+          const writes = calls.filter((c) => WRITE_TOOL_NAMES.has(c.name));
+
+          if (writes.length > 0) {
+            // Persist the pending call so a confirmation can resume it. This is
+            // why content is jsonb: the tool_use block has to survive the round
+            // trip intact.
+            await supabase.from("ai_messages").insert({
+              conversation_id: conversationId,
+              role: "assistant",
+              content: [
+                ...(text ? [{ type: "text", text }] : []),
+                ...calls.map((c) => ({
+                  type: "tool_use",
+                  id: c.id,
+                  name: c.name,
+                  input: c.args || "{}",
+                })),
+              ] as never,
+            });
+
+            for (const write of writes) {
+              let args: Record<string, unknown> = {};
+              try {
+                args = JSON.parse(write.args || "{}");
+              } catch {
+                // describeWrite copes with an empty object.
+              }
+              send({
+                type: "confirm",
+                toolCallId: write.id,
+                name: write.name,
+                args: write.args || "{}",
+                summary: describeWrite(write.name, args),
+              });
+            }
+
+            send({ type: "done", pending: true });
+            return;
+          }
+
           // Independent reads -- run them together rather than serially.
           const results = await Promise.all(
             calls.map(async (call) => {
@@ -276,13 +382,11 @@ export async function POST(request: NextRequest) {
 
         if (turn >= MAX_TURNS && !answer) {
           send({ type: "error", error: "The coach got stuck looking things up. Try again?" });
-          controller.close();
           return;
         }
 
         if (!answer) {
           send({ type: "error", error: "The coach didn't answer. Try again?" });
-          controller.close();
           return;
         }
 
@@ -311,6 +415,9 @@ export async function POST(request: NextRequest) {
           error: cause instanceof Error ? cause.message : "Something went wrong.",
         });
       } finally {
+        // The one close. Every path above returns into this, so closing at the
+        // return sites too would throw ERR_INVALID_STATE on the second call and
+        // take the whole response down with it.
         controller.close();
       }
     },
@@ -331,6 +438,46 @@ type RawToolCall = {
   id?: string;
   function?: { name?: string; arguments?: string };
 };
+
+/**
+ * Turns a stored turn back into what the API expects.
+ *
+ * Most turns are just text. The interesting case is an assistant turn holding a
+ * tool_use block: that is a write the user was asked to confirm and hasn't yet.
+ * Replaying it puts the model back exactly where it stopped, so approving it
+ * later resumes the same turn instead of starting a new one that has to
+ * re-derive the decision.
+ */
+function replayTurn(row: { role: "user" | "assistant"; content: unknown }): ChatMessages[] {
+  const blocks = Array.isArray(row.content) ? row.content : [];
+
+  const toolUses = blocks.filter(
+    (b): b is { type: "tool_use"; id: string; name: string; input: string } =>
+      typeof b === "object" && b !== null && (b as { type?: unknown }).type === "tool_use",
+  );
+
+  const text = textOfStored(row.content);
+
+  if (row.role === "assistant" && toolUses.length > 0) {
+    return [
+      {
+        role: "assistant" as const,
+        content: text,
+        toolCalls: toolUses.map((t) => ({
+          id: t.id,
+          type: "function" as const,
+          function: { name: t.name, arguments: t.input || "{}" },
+        })),
+      },
+    ];
+  }
+
+  // A turn with no text and no tool calls would be an empty message, which the
+  // API rejects. Drop it rather than send it.
+  if (!text) return [];
+
+  return [{ role: row.role, content: text }];
+}
 
 /** Stored turns are block arrays; OpenRouter's shape wants a plain string. */
 function textOfStored(content: unknown): string {
