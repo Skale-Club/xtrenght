@@ -11,7 +11,6 @@ import {
 } from "@/entities/workout/api/workout-queries";
 import { OnboardingWizard } from "@/features/onboarding/ui/onboarding-wizard";
 import { createClient } from "@/shared/lib/supabase/server";
-import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 import { StartWorkoutButton } from "@/features/workout-session/ui/start-workout-button";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -59,8 +58,6 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <SiteHeader />
-
       {needsOnboarding ? <OnboardingWizard displayName={profile?.displayName ?? "there"} /> : null}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12">

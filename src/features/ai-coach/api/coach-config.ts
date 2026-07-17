@@ -51,8 +51,12 @@ The domain model, in the terms the user sees:
   (push/pull/static), and a difficulty level.
 - **Workout** — one training session. Has a start time, an end time once
   finished, and an optional 1-5 rating.
-- **Set** — one set inside a workout: weight, reps, and whether it was
-  completed. A set that was planned but not completed is not a lift.
+- **Set** — one set inside a workout. Most are weight and reps; isometrics and
+  holds — planks, wall sits, static stretches — are *timed* instead: a duration
+  in seconds, with no reps. get_exercise_details tells you which an exercise is —
+  a static force, or a stretching/stabilization type, is held for time — and
+  set_prescription takes hold_seconds for those instead of reps. A set that was
+  planned but not completed is not a lift.
 - **Personal record** — the heaviest completed set for one exercise. Weights are
   stored in kg or lbs; compare in kg.
 - **Program** — a template: weeks, each with sessions, each prescribing

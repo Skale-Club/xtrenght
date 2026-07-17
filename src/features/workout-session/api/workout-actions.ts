@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
+import {
+  DEFAULT_HOLD_SECONDS,
+  defaultSetTypes,
+  isTimedExercise,
+  isTimedSet,
+} from "@/entities/exercise/model/set-kind";
 import { createClient } from "@/shared/lib/supabase/server";
 import type { Enums } from "@/shared/types/database.types";
 
@@ -174,6 +180,7 @@ export type SetValues = {
   reps: number | null;
   weight: number | null;
   weightUnit: Enums<"weight_unit"> | null;
+  durationSeconds: number | null;
   completed: boolean;
 };
 
@@ -194,7 +201,7 @@ export async function addSet(sessionId: string, sessionExerciseId: string) {
 
   const { data: last } = await supabase
     .from("workout_sets")
-    .select("set_index, reps, weight, weight_unit, types")
+    .select("set_index, reps, weight, weight_unit, types, duration_seconds")
     .eq("workout_session_exercise_id", sessionExerciseId)
     .order("set_index", { ascending: false })
     .limit(1)
@@ -206,17 +213,27 @@ export async function addSet(sessionId: string, sessionExerciseId: string) {
   // proved works. The deeper "from workout_sets" shape typechecks but is where
   // PostgREST embedded filters get unreliable.
   let seed = last;
+
+  // With no prior set to copy, the catalogue decides how this exercise is
+  // logged: a plank starts as a timed hold, a curl as weight × reps.
+  let inferredTimed = false;
+
   if (!seed) {
     const { data: link } = await supabase
       .from("workout_session_exercises")
-      .select("exercise_id")
+      .select("exercise_id, exercises(force, exercise_types)")
       .eq("id", sessionExerciseId)
       .maybeSingle();
 
     if (link) {
+      const exercise = link.exercises;
+      inferredTimed = exercise
+        ? isTimedExercise(exercise.force, exercise.exercise_types)
+        : false;
+
       const { data: prior } = await supabase
         .from("workout_session_exercises")
-        .select("workout_sessions!inner(id, started_at, ended_at), workout_sets(set_index, reps, weight, weight_unit, types, completed)")
+        .select("workout_sessions!inner(id, started_at, ended_at), workout_sets(set_index, reps, weight, weight_unit, types, duration_seconds, completed)")
         .eq("exercise_id", link.exercise_id)
         .not("workout_sessions.ended_at", "is", null)
         .neq("workout_sessions.id", sessionId)
@@ -236,18 +253,25 @@ export async function addSet(sessionId: string, sessionExerciseId: string) {
           weight: topSet.weight,
           weight_unit: topSet.weight_unit,
           types: topSet.types,
+          duration_seconds: topSet.duration_seconds,
         };
       }
     }
   }
 
+  const types = seed?.types ?? defaultSetTypes(inferredTimed);
+  const timed = isTimedSet(types);
+
   const { error } = await supabase.from("workout_sets").insert({
     workout_session_exercise_id: sessionExerciseId,
     set_index: (last?.set_index ?? -1) + 1,
-    types: seed?.types ?? ["WEIGHT", "REPS"],
-    reps: seed?.reps ?? null,
+    types,
+    // A timed set counts seconds, not reps -- keep the two mutually exclusive so
+    // the row is never ambiguous about which it is.
+    reps: timed ? null : (seed?.reps ?? null),
     weight: seed?.weight ?? null,
     weight_unit: seed?.weight_unit ?? (seed?.weight != null ? "kg" : null),
+    duration_seconds: timed ? (seed?.duration_seconds ?? DEFAULT_HOLD_SECONDS) : null,
     completed: false,
   });
 
@@ -275,6 +299,7 @@ export async function updateSet(
       reps: values.reps,
       weight,
       weight_unit: weightUnit,
+      duration_seconds: values.durationSeconds,
       completed: values.completed,
     })
     .eq("id", setId);

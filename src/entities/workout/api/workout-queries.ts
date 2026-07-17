@@ -206,7 +206,7 @@ export async function getExerciseHistory(exerciseId: string, limit = 20): Promis
 
 export type LastPerformance = {
   date: string;
-  sets: { weightKg: number | null; reps: number | null }[];
+  sets: { weightKg: number | null; reps: number | null; durationSeconds: number | null }[];
   topWeightKg: number | null;
 };
 
@@ -234,7 +234,7 @@ export async function getLastPerformances(
       `
       exercise_id,
       workout_sessions!inner ( id, started_at, ended_at ),
-      workout_sets ( weight, weight_unit, reps, completed )
+      workout_sets ( weight, weight_unit, reps, duration_seconds, completed )
     `,
     )
     .in("exercise_id", exerciseIds)
@@ -257,7 +257,11 @@ export async function getLastPerformances(
     const existing = best.get(row.exercise_id);
     if (existing && new Date(existing.date) >= new Date(session.started_at)) continue;
 
-    const sets = done.map((set) => ({ weightKg: toKg(set.weight, set.weight_unit), reps: set.reps }));
+    const sets = done.map((set) => ({
+      weightKg: toKg(set.weight, set.weight_unit),
+      reps: set.reps,
+      durationSeconds: set.duration_seconds,
+    }));
     const weights = sets.map((s) => s.weightKg).filter((w): w is number => w !== null);
 
     best.set(row.exercise_id, {

@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+
+import { beepEnd } from "@/shared/lib/audio/beep";
 
 const PRESETS = [60, 90, 120, 180];
 
@@ -21,31 +23,6 @@ export function RestTimer() {
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
   const [preset, setPreset] = useState(90);
-  const audioRef = useRef<AudioContext | null>(null);
-
-  // Declared above the effect that calls it. Hoisting would make it work either
-  // way, but a function the effect closes over should be defined before it, so
-  // that adding a dependency later cannot silently capture a stale version.
-  const beep = useCallback(() => {
-    try {
-      // WebAudio rather than an audio file: no asset to ship, and it works
-      // without a network round trip mid-workout.
-      const ctx = audioRef.current ?? new AudioContext();
-      audioRef.current = ctx;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.4);
-    } catch {
-      // Autoplay policy or no audio device. The countdown reaching 0:00 is
-      // still visible, so failing silently is fine.
-    }
-  }, []);
 
   useEffect(() => {
     if (endsAt === null) return;
@@ -58,14 +35,14 @@ export function RestTimer() {
       setRemaining(left);
       if (left === 0) {
         setEndsAt(null);
-        beep();
+        beepEnd();
       }
     };
 
     tick();
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
-  }, [endsAt, beep]);
+  }, [endsAt]);
 
   const running = endsAt !== null;
 

@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { deleteSet, updateSet } from "@/features/workout-session/api/workout-actions";
+import { isTimedSet } from "@/entities/exercise/model/set-kind";
+import { updateSet, deleteSet } from "@/features/workout-session/api/workout-actions";
+import { SetTimer } from "@/features/workout-session/ui/set-timer";
 import type { Enums, Tables } from "@/shared/types/database.types";
 
 type WorkoutSet = Pick<
   Tables<"workout_sets">,
-  "id" | "set_index" | "reps" | "weight" | "weight_unit" | "completed"
+  "id" | "set_index" | "types" | "reps" | "weight" | "weight_unit" | "duration_seconds" | "completed"
 >;
 
 const inputClass =
@@ -35,11 +37,14 @@ export function SetRow({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  const timed = isTimedSet(set.types);
+
   // Local state so typing stays responsive; the server is told on blur, not on
   // every keystroke. A round trip per character would make the inputs lag and
   // hammer the database mid-set.
   const [weight, setWeight] = useState(set.weight?.toString() ?? "");
   const [reps, setReps] = useState(set.reps?.toString() ?? "");
+  const [duration, setDuration] = useState(set.duration_seconds?.toString() ?? "");
   const [unit, setUnit] = useState<Enums<"weight_unit">>(set.weight_unit ?? "kg");
   const [completed, setCompleted] = useState(set.completed);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +52,11 @@ export function SetRow({
   function save(next?: Partial<{ completed: boolean; unit: Enums<"weight_unit"> }>) {
     startTransition(async () => {
       const result = await updateSet(sessionId, set.id, {
-        reps: toNumber(reps),
+        // Reps and duration are mutually exclusive: whichever the set isn't, is null.
+        reps: timed ? null : toNumber(reps),
         weight: toNumber(weight),
         weightUnit: next?.unit ?? unit,
+        durationSeconds: timed ? toNumber(duration) : null,
         completed: next?.completed ?? completed,
       });
 
@@ -71,6 +78,85 @@ export function SetRow({
       }
       router.refresh();
     });
+  }
+
+  function toggleDone() {
+    const next = !completed;
+    setCompleted(next);
+    save({ completed: next });
+  }
+
+  const doneButton = (
+    <button
+      type="button"
+      disabled={disabled || isPending}
+      onClick={toggleDone}
+      aria-pressed={completed}
+      aria-label={`Mark set ${set.set_index + 1} ${completed ? "not done" : "done"}`}
+      className={`rounded-lg border py-2 text-xs font-bold transition-colors disabled:opacity-50 ${
+        completed
+          ? "border-accent bg-accent text-accent-foreground"
+          : "border-border text-muted hover:text-foreground"
+      }`}
+    >
+      ✓
+    </button>
+  );
+
+  const deleteButton = (
+    <button
+      type="button"
+      disabled={disabled || isPending}
+      onClick={remove}
+      aria-label={`Delete set ${set.set_index + 1}`}
+      className="text-sm text-muted transition-colors hover:text-danger disabled:opacity-50"
+    >
+      ×
+    </button>
+  );
+
+  if (timed) {
+    return (
+      <li
+        className={`grid grid-cols-[2rem_1fr_auto_2.5rem_2rem] items-center gap-2 ${
+          completed ? "opacity-60" : ""
+        }`}
+      >
+        <span className="numeric text-center text-xs text-muted">{set.set_index + 1}</span>
+
+        <input
+          value={duration}
+          onChange={(event) => setDuration(event.target.value)}
+          onBlur={() => save()}
+          disabled={disabled || isPending}
+          inputMode="numeric"
+          placeholder="secs"
+          aria-label={`Set ${set.set_index + 1} duration in seconds`}
+          className={inputClass}
+        />
+
+        {/* Finishing the countdown ticks the set done, the same as tapping ✓. */}
+        <SetTimer
+          targetSeconds={toNumber(duration) ?? 0}
+          onFinish={() => {
+            if (!completed) {
+              setCompleted(true);
+              save({ completed: true });
+            }
+          }}
+          disabled={disabled || isPending}
+        />
+
+        {doneButton}
+        {deleteButton}
+
+        {error ? (
+          <p role="alert" className="col-span-full text-xs text-danger">
+            {error}
+          </p>
+        ) : null}
+      </li>
+    );
   }
 
   return (
@@ -117,34 +203,8 @@ export function SetRow({
         {unit}
       </button>
 
-      <button
-        type="button"
-        disabled={disabled || isPending}
-        onClick={() => {
-          const next = !completed;
-          setCompleted(next);
-          save({ completed: next });
-        }}
-        aria-pressed={completed}
-        aria-label={`Mark set ${set.set_index + 1} ${completed ? "not done" : "done"}`}
-        className={`rounded-lg border py-2 text-xs font-bold transition-colors disabled:opacity-50 ${
-          completed
-            ? "border-accent bg-accent text-accent-foreground"
-            : "border-border text-muted hover:text-foreground"
-        }`}
-      >
-        ✓
-      </button>
-
-      <button
-        type="button"
-        disabled={disabled || isPending}
-        onClick={remove}
-        aria-label={`Delete set ${set.set_index + 1}`}
-        className="text-sm text-muted transition-colors hover:text-danger disabled:opacity-50"
-      >
-        ×
-      </button>
+      {doneButton}
+      {deleteButton}
 
       {error ? (
         <p role="alert" className="col-span-full text-xs text-danger">

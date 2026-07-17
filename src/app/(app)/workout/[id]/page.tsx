@@ -8,7 +8,6 @@ import { RestTimer } from "@/features/workout-session/ui/rest-timer";
 import { SessionExerciseCard } from "@/features/workout-session/ui/session-exercise-card";
 import { SessionRating } from "@/features/workout-session/ui/session-rating";
 import { ButtonLink } from "@/shared/ui/button";
-import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 export const metadata: Metadata = { title: "Workout" };
 
@@ -45,8 +44,6 @@ export default async function WorkoutPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <SiteHeader />
-
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>

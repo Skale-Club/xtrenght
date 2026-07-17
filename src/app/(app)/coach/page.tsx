@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { getConversation, listConversations, textOf } from "@/entities/ai-coach/api/conversation-queries";
 import { CoachChat } from "@/features/ai-coach/ui/coach-chat";
 import { createClient } from "@/shared/lib/supabase/server";
-import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 export const metadata: Metadata = { title: "Coach" };
 
@@ -39,9 +38,6 @@ export default async function CoachPage({
     })) ?? [];
 
   return (
-    <>
-      <SiteHeader />
-      <CoachChat initialConversationId={resumed?.id} initialTurns={turns} />
-    </>
+    <CoachChat initialConversationId={resumed?.id} initialTurns={turns} />
   );
 }

@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/features/auth/ui/auth-form";
 import { createClient } from "@/shared/lib/supabase/server";
-import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -31,21 +30,17 @@ export default async function LoginPage({
   }
 
   return (
-    <>
-      <SiteHeader />
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center px-6 py-16">
+      <h1 className="mb-2 text-2xl font-bold tracking-tight">Welcome back</h1>
+      <p className="mb-8 text-sm text-muted">Sign in to log your next session.</p>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center px-6 py-16">
-        <h1 className="mb-2 text-2xl font-bold tracking-tight">Welcome back</h1>
-        <p className="mb-8 text-sm text-muted">Sign in to log your next session.</p>
+      {error ? (
+        <p role="alert" className="mb-6 w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-danger">
+          {ERROR_MESSAGES[error] ?? "Something went wrong. Try again."}
+        </p>
+      ) : null}
 
-        {error ? (
-          <p role="alert" className="mb-6 w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-danger">
-            {ERROR_MESSAGES[error] ?? "Something went wrong. Try again."}
-          </p>
-        ) : null}
-
-        <AuthForm redirectTo={redirectTo} />
-      </main>
-    </>
+      <AuthForm redirectTo={redirectTo} />
+    </main>
   );
 }

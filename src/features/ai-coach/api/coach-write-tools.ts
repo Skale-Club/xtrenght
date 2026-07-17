@@ -3,6 +3,7 @@ import "server-only";
 import { getExerciseBySlug } from "@/entities/exercise/api/exercise-queries";
 import { getProgramBySlug } from "@/entities/program/api/program-queries";
 import { createClient } from "@/shared/lib/supabase/server";
+import type { Enums } from "@/shared/types/database.types";
 
 /**
  * Tools that change something.
@@ -59,7 +60,7 @@ export const COACH_WRITE_TOOLS = [
     function: {
       name: "set_prescription",
       description:
-        "Set the planned sets for one exercise in the user's current workout — weight and reps per set, not yet completed. This is how you apply a plan or an adjustment: read their history first, then prescribe. Replaces whatever sets that exercise currently has.",
+        "Set the planned sets for one exercise in the user's current workout — not yet completed. This is how you apply a plan or an adjustment: read their history first, then prescribe. Replaces whatever sets that exercise currently has. Most exercises are reps (with optional weight); isometrics and holds — planks, wall sits, static stretches — are timed instead. get_exercise_details tells you which: a static force or a stretching/stabilization type is held for time, so prescribe hold_seconds, not reps.",
       parameters: {
         type: "object",
         properties: {
@@ -71,9 +72,12 @@ export const COACH_WRITE_TOOLS = [
               type: "object",
               properties: {
                 weight_kg: { type: "number", description: "Omit for bodyweight." },
-                reps: { type: "integer" },
+                reps: { type: "integer", description: "For a reps-based set. Give this OR hold_seconds, not both." },
+                hold_seconds: {
+                  type: "integer",
+                  description: "For a timed hold (plank, isometric, stretch): seconds to hold. Use instead of reps.",
+                },
               },
-              required: ["reps"],
             },
           },
         },
@@ -126,15 +130,20 @@ export function describeWrite(name: string, args: Record<string, unknown>): stri
     case "set_prescription": {
       const sets = Array.isArray(args.sets) ? args.sets : [];
       const name = String(args.slug ?? "exercise").replace(/-/g, " ");
-      const first = sets[0] as { weight_kg?: number; reps?: number } | undefined;
+      const first = sets[0] as { weight_kg?: number; reps?: number; hold_seconds?: number } | undefined;
       const uniform = sets.every(
         (s) =>
           (s as { weight_kg?: number }).weight_kg === first?.weight_kg &&
-          (s as { reps?: number }).reps === first?.reps,
+          (s as { reps?: number }).reps === first?.reps &&
+          (s as { hold_seconds?: number }).hold_seconds === first?.hold_seconds,
       );
-      const shape = uniform && first
-        ? `${sets.length} × ${first.reps}${first.weight_kg ? ` @ ${first.weight_kg}kg` : ""}`
-        : `${sets.length} sets`;
+      let shape = `${sets.length} sets`;
+      if (uniform && first) {
+        shape =
+          typeof first.hold_seconds === "number"
+            ? `${sets.length} × ${first.hold_seconds}s`
+            : `${sets.length} × ${first.reps}${first.weight_kg ? ` @ ${first.weight_kg}kg` : ""}`;
+      }
       return `Plan ${shape} of ${name}`;
     }
     case "follow_program":
@@ -264,7 +273,9 @@ export async function runCoachWrite(name: string, rawArgs: string): Promise<Writ
           return { ok: false, error: `${exercise.name} is not in the current workout. Add it first.` };
         }
 
-        const sets = Array.isArray(args.sets) ? (args.sets as { weight_kg?: number; reps?: number }[]) : [];
+        const sets = Array.isArray(args.sets)
+          ? (args.sets as { weight_kg?: number; reps?: number; hold_seconds?: number }[])
+          : [];
         if (sets.length === 0) return { ok: false, error: "No sets given." };
 
         // Replace rather than append -- "plan 3x5" twice should leave 3 sets.
@@ -287,16 +298,28 @@ export async function runCoachWrite(name: string, rawArgs: string): Promise<Writ
         let index = (remaining?.set_index ?? -1) + 1;
 
         const { error } = await supabase.from("workout_sets").insert(
-          sets.map((set) => ({
-            workout_session_exercise_id: link.id,
-            set_index: index++,
-            types: ["WEIGHT", "REPS"] as const,
-            reps: set.reps ?? null,
-            weight: set.weight_kg ?? null,
-            // The constraint rejects a weight with no unit; the coach works in kg.
-            weight_unit: set.weight_kg != null ? ("kg" as const) : null,
-            completed: false,
-          })),
+          sets.map((set) => {
+            const timed = typeof set.hold_seconds === "number";
+            const hasWeight = set.weight_kg != null;
+            // A held set counts seconds; a rep set counts reps. Weight can ride
+            // along with either (a weighted plank, a loaded carry).
+            const types: Enums<"workout_set_type">[] = timed
+              ? hasWeight
+                ? ["TIME", "WEIGHT"]
+                : ["TIME"]
+              : ["WEIGHT", "REPS"];
+            return {
+              workout_session_exercise_id: link.id,
+              set_index: index++,
+              types,
+              reps: timed ? null : (set.reps ?? null),
+              weight: set.weight_kg ?? null,
+              // The constraint rejects a weight with no unit; the coach works in kg.
+              weight_unit: hasWeight ? ("kg" as const) : null,
+              duration_seconds: timed ? (set.hold_seconds ?? null) : null,
+              completed: false,
+            };
+          }),
         );
 
         if (error) return { ok: false, error: error.message };

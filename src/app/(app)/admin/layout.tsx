@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
 import { createClient } from "@/shared/lib/supabase/server";
-import { SiteHeader } from "@/widgets/site-header/ui/site-header";
 
 /**
  * Admin gate.
@@ -32,9 +31,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">{children}</main>
-    </>
+    <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">{children}</main>
   );
 }

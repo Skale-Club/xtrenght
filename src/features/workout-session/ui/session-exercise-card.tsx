@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
+import { isTimedSet } from "@/entities/exercise/model/set-kind";
 import { addSet, removeExerciseFromSession } from "@/features/workout-session/api/workout-actions";
 import { SetRow } from "@/features/workout-session/ui/set-row";
 import type { LastPerformance, WorkoutSessionDetail } from "@/entities/workout/api/workout-queries";
@@ -18,12 +19,25 @@ type SessionExercise = WorkoutSessionDetail["workout_session_exercises"][number]
  *
  * - all sets equal, weighted:   "3 sets · 60 kg × 5"
  * - all sets equal, bodyweight: "3 sets · 5 reps"
+ * - all sets equal, timed:      "3 sets · 60s"
  * - mixed, weighted:            "60kg × 5, 62.5kg × 3"
  * - mixed, bodyweight:          "5 · 8 · 6 reps"
+ * - mixed, timed:               "60s · 45s · 30s"
  */
 function formatLast(perf: LastPerformance): string {
   const sets = perf.sets;
   const round = (n: number) => (Math.round(n * 10) / 10).toString();
+
+  // A timed exercise is held for seconds -- no reps, and usually no load.
+  if (sets.some((s) => s.durationSeconds !== null)) {
+    const secs = sets.map((s) => s.durationSeconds);
+    const first = secs[0];
+    if (secs.every((s) => s === first) && first !== null) {
+      return `${sets.length} set${sets.length === 1 ? "" : "s"} · ${first}s`;
+    }
+    return secs.map((s) => (s !== null ? `${s}s` : "?")).join(" · ");
+  }
+
   const anyWeight = sets.some((s) => s.weightKg !== null);
 
   const first = sets[0];
@@ -65,6 +79,9 @@ export function SessionExerciseCard({
 
   const exercise = sessionExercise.exercises;
   const sets = sessionExercise.workout_sets;
+  // Every set of an exercise shares its kind (a new set inherits it), so the
+  // first set decides which column layout the whole card wears.
+  const timed = sets.length > 0 && isTimedSet(sets[0].types);
 
   function append() {
     startTransition(async () => {
@@ -130,15 +147,25 @@ export function SessionExerciseCard({
       {sets.length > 0 ? (
         <>
           {/* Labels the columns once, rather than repeating placeholder text in
-              every row's inputs. */}
-          <div className="mb-2 grid grid-cols-[2rem_1fr_1fr_3.5rem_2.5rem_2rem] gap-2 text-center text-[0.65rem] font-medium tracking-wide text-muted uppercase">
-            <span>Set</span>
-            <span>Weight</span>
-            <span>Reps</span>
-            <span>Unit</span>
-            <span>Done</span>
-            <span />
-          </div>
+              every row's inputs. Timed and rep sets wear different columns. */}
+          {timed ? (
+            <div className="mb-2 grid grid-cols-[2rem_1fr_auto_2.5rem_2rem] gap-2 text-center text-[0.65rem] font-medium tracking-wide text-muted uppercase">
+              <span>Set</span>
+              <span>Secs</span>
+              <span>Timer</span>
+              <span>Done</span>
+              <span />
+            </div>
+          ) : (
+            <div className="mb-2 grid grid-cols-[2rem_1fr_1fr_3.5rem_2.5rem_2rem] gap-2 text-center text-[0.65rem] font-medium tracking-wide text-muted uppercase">
+              <span>Set</span>
+              <span>Weight</span>
+              <span>Reps</span>
+              <span>Unit</span>
+              <span>Done</span>
+              <span />
+            </div>
+          )}
 
           <ul className="flex flex-col gap-2">
             {sets.map((set) => (
