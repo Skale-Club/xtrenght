@@ -71,17 +71,20 @@ export async function saveTrainingProfile(input: ProfileInput) {
   if (error) return { error: error.message };
 
   // A weigh-in is an event, not a field: only insert when they gave one, and
-  // never overwrite the last.
+  // never overwrite the last. Weight is a body_measurement of type WEIGHT, so
+  // an onboarding weigh-in is the first point on the progress chart.
   if (input.bodyWeight !== null) {
-    const { error: weightError } = await supabase.from("body_weight_entries").insert({
+    const { error: weightError } = await supabase.from("body_measurements").insert({
       user_id: user.id,
-      weight: input.bodyWeight,
-      weight_unit: input.weightUnit,
+      type: "WEIGHT",
+      value: input.bodyWeight,
+      unit: input.weightUnit,
     });
     if (weightError) return { error: weightError.message };
   }
 
-  revalidatePath("/profile");
+  revalidatePath("/settings");
+  revalidatePath("/progress");
   revalidatePath("/coach");
   revalidatePath("/exercises");
   return { error: null };
@@ -108,26 +111,5 @@ export async function skipOnboarding() {
     .eq("id", user.id);
 
   if (error) return { error: error.message };
-  return { error: null };
-}
-
-/** One weigh-in. Separate from the profile because it happens repeatedly. */
-export async function logBodyWeight(weight: number, unit: "kg" | "lbs") {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You must be signed in." };
-
-  if (weight <= 0 || weight >= 1000) return { error: "That bodyweight doesn't look right." };
-
-  const { error } = await supabase
-    .from("body_weight_entries")
-    .insert({ user_id: user.id, weight, weight_unit: unit });
-
-  if (error) return { error: error.message };
-
-  revalidatePath("/profile");
   return { error: null };
 }

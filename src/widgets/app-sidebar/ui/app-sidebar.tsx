@@ -38,6 +38,12 @@ const icons = {
       <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
     </Icon>
   ),
+  progress: (
+    <Icon>
+      <path d="M3 3v18h18" />
+      <path d="M7 14l4-4 3 3 5-6" />
+    </Icon>
+  ),
   programs: (
     <Icon>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -86,6 +92,7 @@ type NavItem = { href: string; label: string; icon: ReactNode };
 
 const PRIMARY: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: icons.dashboard },
+  { href: "/progress", label: "Progress", icon: icons.progress },
   { href: "/coach", label: "Coach", icon: icons.coach },
   { href: "/programs", label: "Programs", icon: icons.programs },
   { href: "/exercises", label: "Exercises", icon: icons.exercises },

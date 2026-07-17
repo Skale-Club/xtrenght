@@ -36,9 +36,12 @@ export async function getTrainingProfile(): Promise<TrainingProfile | null> {
 
   if (!profile) return null;
 
+  // Bodyweight is the newest WEIGHT measurement -- weight lives in
+  // body_measurements now, one type among several rather than its own table.
   const { data: weight } = await supabase
-    .from("body_weight_entries")
-    .select("weight, weight_unit, measured_at")
+    .from("body_measurements")
+    .select("value, unit, measured_at")
+    .eq("type", "WEIGHT")
     .order("measured_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -50,20 +53,10 @@ export async function getTrainingProfile(): Promise<TrainingProfile | null> {
     sessionsPerWeek: profile.sessions_per_week,
     limitations: profile.limitations,
     onboardedAt: profile.onboarded_at,
-    bodyWeight: weight
-      ? { weight: Number(weight.weight), unit: weight.weight_unit, measuredAt: weight.measured_at }
-      : null,
+    bodyWeight:
+      weight && (weight.unit === "kg" || weight.unit === "lbs")
+        ? { weight: Number(weight.value), unit: weight.unit, measuredAt: weight.measured_at }
+        : null,
   };
 }
 
-/** Every weigh-in, oldest first -- the shape a chart wants. */
-export async function getBodyWeightHistory(limit = 200) {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("body_weight_entries")
-    .select("id, weight, weight_unit, measured_at")
-    .order("measured_at", { ascending: true })
-    .limit(limit);
-
-  return (data ?? []).map((e) => ({ ...e, weight: Number(e.weight) }));
-}

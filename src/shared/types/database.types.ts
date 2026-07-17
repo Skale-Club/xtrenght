@@ -90,6 +90,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      body_measurements: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: Enums<"measurement_type">;
+          value: number;
+          unit: Enums<"measurement_unit">;
+          measured_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          type: Enums<"measurement_type">;
+          value: number;
+          unit: Enums<"measurement_unit">;
+          measured_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          type?: Enums<"measurement_type">;
+          value?: number;
+          unit?: Enums<"measurement_unit">;
+          measured_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       exercises: {
         Row: {
           id: string;
@@ -857,6 +887,19 @@ export type Database = {
         | "FINGERS"
         | "LOWER_BACK"
         | "MIDDLE_BACK";
+      measurement_type:
+        | "WEIGHT"
+        | "BODY_FAT"
+        | "NECK"
+        | "SHOULDERS"
+        | "CHEST"
+        | "ARM"
+        | "FOREARM"
+        | "WAIST"
+        | "HIP"
+        | "THIGH"
+        | "CALF";
+      measurement_unit: "kg" | "lbs" | "cm" | "in" | "percent";
       training_goal: "STRENGTH" | "HYPERTROPHY" | "ENDURANCE" | "WEIGHT_LOSS" | "GENERAL_FITNESS";
       user_role: "user" | "admin";
       weight_unit: "kg" | "lbs";
