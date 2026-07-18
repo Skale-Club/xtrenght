@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { getTrainingProfile } from "@/entities/profile/api/profile-queries";
+import { EQUIPMENT_LABEL } from "@/entities/profile/model/equipment-options";
+import { GOAL_OPTIONS } from "@/entities/profile/model/goals";
+import { listRecommendedPrograms } from "@/entities/program/api/program-queries";
 import {
   getActiveSession,
   getSessionSummary,
@@ -17,6 +20,17 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function goalLabel(value: string | null) {
+  return GOAL_OPTIONS.find((goal) => goal.value === value)?.label ?? "Open goal";
 }
 
 function Stat({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
@@ -50,10 +64,11 @@ export default async function DashboardPage() {
   const profile = await getTrainingProfile();
   const needsOnboarding = Boolean(profile && !profile.onboardedAt);
 
-  const [summary, sessions, active] = await Promise.all([
+  const [summary, sessions, active, recommended] = await Promise.all([
     getSessionSummary(),
     listRecentSessions(),
     getActiveSession(),
+    listRecommendedPrograms(profile?.availableEquipment ?? null),
   ]);
 
   return (
@@ -68,6 +83,74 @@ export default async function DashboardPage() {
           </div>
           <StartWorkoutButton resumeId={active?.id} />
         </div>
+
+        <section className="mb-12 rounded-xl border border-border bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium tracking-wide text-muted uppercase">Your training</p>
+              <p className="mt-2 font-semibold">{goalLabel(profile?.trainingGoal ?? null)}</p>
+            </div>
+            <Link href="/settings" className="text-sm font-semibold text-accent hover:underline">
+              Edit
+            </Link>
+          </div>
+
+          {profile?.availableEquipment?.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {profile.availableEquipment.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted"
+                >
+                  {EQUIPMENT_LABEL[item] ?? titleCase(item)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="mb-12">
+          <div className="mb-4 flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-semibold">Recommended for you</h2>
+            <Link href="/programs" className="text-sm text-muted hover:text-foreground">
+              All programs →
+            </Link>
+          </div>
+
+          {recommended.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border p-10 text-center">
+              <p className="text-sm text-muted">
+                No published program fits your equipment yet. Browse the full catalogue in the
+                meantime.
+              </p>
+            </div>
+          ) : (
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {recommended.map((program) => (
+                <li key={program.id}>
+                  <Link
+                    href={`/programs/${program.slug}`}
+                    className="flex h-full flex-col rounded-xl border border-border bg-surface p-5 transition-colors hover:border-muted"
+                  >
+                    <p className="font-semibold">{program.title}</p>
+                    {program.description ? (
+                      <p className="mt-1.5 line-clamp-2 text-sm text-muted">{program.description}</p>
+                    ) : null}
+                    <p className="mt-auto pt-4 text-xs text-muted">
+                      <span className="text-accent">{titleCase(program.level)}</span>
+                      {" · "}
+                      {program.equipment.length === 0
+                        ? "Bodyweight"
+                        : program.equipment
+                            .map((item) => EQUIPMENT_LABEL[item] ?? titleCase(item))
+                            .join(", ")}
+                    </p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <div className="mb-12 grid gap-4 sm:grid-cols-3">
           <Stat label="Sessions" value={summary.totalSessions} />
