@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:db": "node supabase/tests/schema.test.mjs",
+    "test:mcp": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/register.mjs tests/mcp.test.mjs",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --linked > src/shared/types/database.types.ts",

@@ -88,9 +88,9 @@ Feature-Sliced Design, the same layering workout-cool uses. Imports flow one dir
 
 ```
 src/
-├── app/           Next.js routes and pages
+├── app/           Next.js routes and pages (incl. /api/mcp, the MCP server)
 ├── widgets/       Composed UI blocks (site header)
-├── features/      User-facing actions (auth, workout-session)
+├── features/      User-facing actions (auth, workout-session, mcp)
 ├── entities/      Domain data access (exercise, workout)
 ├── shared/        Supabase clients, generated DB types, UI primitives
 └── proxy.ts       Session refresh + route gating
@@ -200,6 +200,84 @@ has no path that puts it back.
 
 Suggested sets use explicit `reps`/`weight` columns, for the same reason logged sets do.
 
+## MCP server
+
+An [MCP](https://modelcontextprotocol.io) server exposes the app to AI assistants. Point a client at
+`/api/mcp` and it can browse the catalogue, build and log workouts, follow programs, read progress,
+and — for admins — author programs. It speaks the Streamable HTTP transport statelessly: one
+JSON-RPC request in, one JSON response out, no server-side session to keep. All of it lives under
+`src/features/mcp` with a route handler at `src/app/api/mcp/route.ts`.
+
+### Auth is the RLS boundary again
+
+The design principle from [authorization](#how-authorization-works) is the whole point here too: the
+MCP tools carry **no authorization code**. A request presents a Supabase access token as its bearer
+credential; `src/features/mcp/api/auth.ts` validates it with `getUser(token)` (revalidated against
+Supabase, never merely decoded) and builds a Supabase client that pins the token onto every
+PostgREST call. So the tools run as the caller, and Postgres decides what each one may do. A
+non-admin who calls `create_program` is refused by the database, exactly as they would be through the
+web UI — there is no second copy of the rule in TypeScript to forget.
+
+Consequently every tool is advertised to every caller. Hiding the admin tools from a non-admin would
+be a cosmetic gate in front of the real one; instead the tool runs, the database says no, and the
+tool reports that.
+
+### Getting a token
+
+Signed-in users generate credentials at **`/account/mcp`**: confirm your password and the page hands
+back an access token, a refresh token, and a ready-to-paste client config. Under the hood that is the
+OAuth 2.0 password grant at `/api/mcp/token`, which also serves the `refresh_token` grant so an
+OAuth-capable client can stay connected on its own.
+
+The endpoint is a proper OAuth 2.0 protected resource: an unauthenticated request gets a `401` whose
+`WWW-Authenticate` header points at
+`/.well-known/oauth-protected-resource` (RFC 9728), which in turn names the authorization server
+metadata at `/.well-known/oauth-authorization-server` (RFC 8414). A spec-aware client follows that
+chain to discover the token endpoint; a simpler one pastes the token from `/account/mcp`. Access
+tokens are short-lived (the project's `jwt_expiry`, one hour by default) — refresh, or regenerate.
+
+There is no browser authorization-code flow: this issues tokens only to someone who can already prove
+who they are (a password or a refresh token), which is what the two grants cover. Full dynamic client
+registration and the redirect flow were left out until a client needs them.
+
+```jsonc
+// Example MCP client config (Claude Desktop, Cursor, …)
+{
+  "mcpServers": {
+    "xtrenght": {
+      "type": "http",
+      "url": "https://<your-host>/api/mcp",
+      "headers": { "Authorization": "Bearer <access token from /account/mcp>" }
+    }
+  }
+}
+```
+
+### The tools
+
+| Group | Tools |
+| --- | --- |
+| Catalogue (read) | `whoami`, `list_exercises`, `get_exercise`, `list_programs`, `get_program` |
+| Workout logging | `start_workout`, `get_active_workout`, `get_workout`, `list_recent_workouts`, `add_exercise_to_workout`, `remove_exercise_from_workout`, `add_set`, `update_set`, `delete_set`, `finish_workout`, `rate_workout`, `get_exercise_history`, `get_dashboard_summary` |
+| Programs (member) | `enroll_in_program`, `leave_program`, `start_program_session` |
+| Program authoring (admin) | `create_program`, `update_program`, `set_program_visibility`, `delete_program`, `add_program_week`, `delete_program_week`, `add_program_session`, `delete_program_session`, `add_exercise_to_program_session`, `remove_exercise_from_program_session`, `add_suggested_set`, `update_suggested_set`, `delete_suggested_set` |
+
+Each tool advertises a JSON Schema for its input; the same schema validates the arguments on the way
+in (`src/features/mcp/api/validation.ts`), so the advertised contract and the enforced one are one
+object and cannot drift.
+
+### Testing it
+
+```bash
+pnpm test:mcp
+```
+
+Loads the real dispatcher, tool registry and validator through a small alias hook and drives them
+with a faked database: it covers protocol framing, tool advertisement, result formatting and input
+validation. Authorization itself is not re-tested here — it is RLS, and `pnpm test:db` already
+covers that. The endpoint wiring (the `401` challenge, the discovery documents, CORS, and the token
+grants) is exercised against a running server.
+
 ## Testing the schema
 
 ```bash
@@ -237,6 +315,7 @@ JWT; everything downstream of it is real Postgres.
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint |
 | `pnpm test:db` | Schema + RLS tests against in-memory Postgres |
+| `pnpm test:mcp` | MCP dispatcher, tool registry and input-validation tests |
 | `pnpm db:push` | Apply migrations to the linked project |
 | `pnpm db:reset` | Reset local DB and re-apply migrations + seed |
 | `pnpm db:types` | Regenerate DB types from the live schema |
@@ -253,7 +332,8 @@ Working: email/password auth with password reset, session refresh and route gati
 876-exercise catalogue with self-hosted images, trigram-indexed search and muscle-group filters;
 favourites; the workout logger (add/remove exercises, add/edit/delete sets, kg/lbs toggle, rest
 timer, resume an unfinished session); per-exercise history with personal records; session ratings;
-and a dashboard with session/set/volume stats.
+a dashboard with session/set/volume stats; and an [MCP server](#mcp-server) that lets an AI assistant
+do all of it — and author programs — over an OAuth-authenticated, RLS-scoped connection.
 
 Verified end to end against the live project, not just in tests: signing in through the browser,
 logging 82.5 kg x 8, finishing, and confirming the row in Postgres and 660 kg on the dashboard.
