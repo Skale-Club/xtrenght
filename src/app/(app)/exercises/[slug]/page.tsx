@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 
 import { getExerciseBySlug, isFavorited } from "@/entities/exercise/api/exercise-queries";
@@ -7,6 +6,7 @@ import { getExerciseHistory } from "@/entities/workout/api/workout-queries";
 import { ExerciseHistoryPanel } from "@/entities/workout/ui/exercise-history";
 import { FavoriteButton } from "@/features/favorites/ui/favorite-button";
 import { createClient } from "@/shared/lib/supabase/server";
+import { ExerciseImage } from "@/shared/ui/exercise-image";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -75,7 +75,7 @@ export default async function ExercisePage({ params }: PageProps) {
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
           {/* The source ships start and end positions, in order. */}
           {exercise.image_urls.map((url, index) => (
-            <Image
+            <ExerciseImage
               key={url}
               src={url}
               alt={`${exercise.name}, position ${index + 1} of ${exercise.image_urls.length}`}

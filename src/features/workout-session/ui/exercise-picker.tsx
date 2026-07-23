@@ -1,12 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import { addExerciseToSession } from "@/features/workout-session/api/workout-actions";
 import { searchExercisesForPicker, type PickerExercise } from "@/features/workout-session/api/search-exercises";
 import { Button } from "@/shared/ui/button";
+import { ExerciseImage } from "@/shared/ui/exercise-image";
 
 function label(value: string) {
   return value.replace(/_/g, " ").toLowerCase();
@@ -96,7 +96,7 @@ export function ExercisePicker({ sessionId }: { sessionId: string }) {
               className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-surface-raised disabled:opacity-50"
             >
               {exercise.imageUrl ? (
-                <Image
+                <ExerciseImage
                   src={exercise.imageUrl}
                   alt=""
                   width={40}

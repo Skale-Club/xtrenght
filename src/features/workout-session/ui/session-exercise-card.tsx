@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
@@ -10,6 +9,7 @@ import { addSet, removeExerciseFromSession } from "@/features/workout-session/ap
 import { SetRow } from "@/features/workout-session/ui/set-row";
 import type { LastPerformance, WorkoutSessionDetail } from "@/entities/workout/api/workout-queries";
 import { Button } from "@/shared/ui/button";
+import { ExerciseImage } from "@/shared/ui/exercise-image";
 
 type SessionExercise = WorkoutSessionDetail["workout_session_exercises"][number];
 
@@ -101,7 +101,7 @@ export function SessionExerciseCard({
     <article className="rounded-xl border border-border bg-surface p-4">
       <header className="mb-4 flex items-center gap-3">
         {exercise?.image_urls?.[0] ? (
-          <Image
+          <ExerciseImage
             src={exercise.image_urls[0]}
             alt=""
             width={44}

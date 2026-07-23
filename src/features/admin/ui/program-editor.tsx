@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -20,6 +19,7 @@ import {
 import { searchExercisesForPicker, type PickerExercise } from "@/features/workout-session/api/search-exercises";
 import type { Enums } from "@/shared/types/database.types";
 import { Button } from "@/shared/ui/button";
+import { ExerciseImage } from "@/shared/ui/exercise-image";
 
 const LEVELS: Enums<"program_level">[] = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"];
 
@@ -105,7 +105,7 @@ function ExerciseCard({ exercise, onChanged }: { exercise: SessionExercise; onCh
     <div className="rounded-lg border border-border bg-surface p-3">
       <div className="mb-2 flex items-center gap-2">
         {exercise.exercises?.image_urls?.[0] ? (
-          <Image
+          <ExerciseImage
             src={exercise.exercises.image_urls[0]}
             alt=""
             width={28}

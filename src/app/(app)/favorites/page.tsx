@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 
 import { listFavoriteExercises } from "@/entities/exercise/api/exercise-queries";
 import { ButtonLink } from "@/shared/ui/button";
+import { ExerciseImage } from "@/shared/ui/exercise-image";
 
 export const metadata: Metadata = { title: "Favourites" };
 
@@ -42,7 +42,7 @@ export default async function FavoritesPage() {
                 className="flex gap-4 overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-muted"
               >
                 {exercise.image_urls[0] ? (
-                  <Image
+                  <ExerciseImage
                     src={exercise.image_urls[0]}
                     alt=""
                     width={96}
